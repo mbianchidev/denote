@@ -10,12 +10,14 @@ import { SensitiveToolPanel } from "./SensitiveToolPanel";
 import { AudioPlayback } from "./AudioPlayback";
 import "./SensitiveTools.css";
 
-export function SpeechPanel({ pluginId, workspaceScope, path, source, selection, captureSelection, readOnly, suspended = false, dictationRequest = 0, onInsert, onSaveVoiceNote, onClose }: {
+export function SpeechPanel({ pluginId, workspaceScope, path, source, selection, captureSelection, readOnly, suspended = false, dictationRequest = 0, shortcutLabel = "Ctrl+Space", onShortcutChange, onInsert, onSaveVoiceNote, onClose }: {
   pluginId: string; workspaceScope: string; path: string; source: string;
   selection: AuthoringSelection | null; readOnly: boolean;
   captureSelection?: () => AuthoringSelection | null;
   suspended?: boolean;
   dictationRequest?: number;
+  shortcutLabel?: string;
+  onShortcutChange?: (value: string) => string;
   onInsert: (text: string, from: number, to: number) => void;
   onSaveVoiceNote: (wav: Uint8Array, from: number, to: number) => Promise<void>;
   onClose: () => void;
@@ -42,6 +44,8 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [shortcutDraft, setShortcutDraft] = useState(shortcutLabel);
+  useEffect(() => setShortcutDraft(shortcutLabel), [shortcutLabel]);
   const [transcript, setTranscript] = useState<SpeechTranscript | null>(null);
   const [draft, setDraft] = useState("");
   const [timestamps, setTimestamps] = useState(false);
@@ -68,6 +72,15 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
   const transcribeButton = useRef<HTMLButtonElement>(null);
   const modelSummary = useRef<HTMLElement>(null);
   const insertion = useMemo(() => speechInsertionTarget(source, capturedSelection), [source, capturedSelection]);
+  const configureShortcut = (value: string) => {
+    setError(""); setStatus("");
+    try {
+      if (busy || capture.current || finishingCapture.current) throw new Error("Finish or cancel recording before changing its shortcut.");
+      if (!onShortcutChange) throw new Error("Shortcut configuration is unavailable. Reopen Speech.");
+      setShortcutDraft(onShortcutChange(value));
+      setStatus("Dictation shortcut updated.");
+    } catch (caught) { setError(errorMessage(caught)); }
+  };
 
   const stopSpeech = () => { ++ttsEpoch.current; speakingRef.current = null; window.speechSynthesis?.cancel(); if (alive.current) setSpeaking(null); };
   const clearAudio = () => {
@@ -311,7 +324,28 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
   }}>
     <div className="sensitive-tool">
       <p className="authoring-muted">{path}. Local voices and transcription only. Plugin code never receives text or audio.</p>
-      <p className="authoring-muted">Ctrl+Space starts dictation. Press it again to stop and transcribe locally.</p>
+      <p className="authoring-muted">{shortcutLabel} starts dictation. Press it again to stop and transcribe locally.</p>
+      {onShortcutChange ? <details data-speech-shortcut-setting onFocusCapture={() => {
+        if (queuedDictationRequest.current === null) return;
+        handledDictationRequest.current = currentDictationRequest.current;
+        queuedDictationRequest.current = null;
+        setStatus("Pending dictation cancelled while editing its shortcut.");
+      }}>
+        <summary>Dictation shortcut</summary>
+        <form className="speech-shortcut-form" onSubmit={(event) => { event.preventDefault(); configureShortcut(shortcutDraft); }}>
+          <label>Dictation shortcut
+            <input value={shortcutDraft} onChange={(event) => setShortcutDraft(event.currentTarget.value)}
+              maxLength={80} autoComplete="off" spellCheck={false} disabled={busy || captureState !== null} />
+          </label>
+          <p className="authoring-muted">For example, Ctrl+Shift+D or Alt+Shift+D. Saved on this device. Existing app shortcuts cannot be replaced.</p>
+          <div className="authoring-actions">
+            <button type="submit" className="secondary-button" disabled={busy || captureState !== null}>Save shortcut</button>
+            <button type="button" className="secondary-button" disabled={busy || captureState !== null}
+              onClick={() => configureShortcut("Ctrl+Space")}>Use Ctrl+Space</button>
+          </div>
+          {captureState ? <p className="authoring-muted">Finish or cancel recording before changing its shortcut.</p> : null}
+        </form>
+      </details> : null}
       {error ? <p role="alert" className="authoring-error">{error}</p> : null}
       <p role="status">{status}</p>
       <section aria-label="Read aloud">
@@ -336,7 +370,7 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
         {!voices.length ? <p className="authoring-muted">No local voice is available. Install an offline OS voice; remote voices are not used.</p> : null}
       </section>
       <section aria-label="Microphone recording">
-        <p className="authoring-muted">Only recording controls or Ctrl+Space start the microphone. Recordings are limited to 10 minutes.</p>
+        <p className="authoring-muted">Only recording controls or {shortcutLabel} start the microphone. Recordings are limited to 10 minutes.</p>
         {captureState ? <div className="speech-recording" data-speech-capture>
           <strong role="status">{captureState === "requesting" ? "Requesting microphone access…" : captureState === "paused" ? "Recording paused" :
             captureState === "finishing" ? "Finishing recording…" : "Recording microphone audio"}</strong>

@@ -508,7 +508,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   transcripts. Separately approved pinned NVIDIA Nemotron 3.5 model/runtime
   downloads enable local CPU inference. Audio stays in memory or authorized
   vault files, never a transcription staging file or remote service.
-  Its activity-rail sidebar works beside Rich and Source. Control-Space starts
+  Its activity-rail sidebar works beside Rich and Source. The configurable,
+  device-local shortcut defaults to Control-Space and starts
   and finishes local dictation; an exact current selection is preserved and a
   missing/stale position safely appends reviewed text instead.
 - The optional **Encrypted credential store** encrypts every entry field in
@@ -519,6 +520,7 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   reauthenticated/confirmed plaintext export remain host-owned.
   Its sidebar table provides service/username/secret copy, add/edit/delete,
   and one-time reviewed HTTP(S) service links without persisting their addresses.
+  Accessible eye buttons reveal/hide secrets without cramped text controls.
 - Sensitive workers register declarative tools only and never receive text,
   audio, entries, passwords, keys, or clipboard contents. Removing code preserves
   notes, decks, audio, accepted transcripts, comments, and encrypted credentials.

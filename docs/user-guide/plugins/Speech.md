@@ -19,12 +19,16 @@ file and relative Markdown link. **Cancel recording** and **Discard audio**
 remove unsaved audio.
 
 For dictation or imported audio, approve the separate local model/runtime
-download and choose a supported locale. **Control-Space** starts dictation
+download and choose a supported locale. **Control-Space** starts dictation by default
 while this note is active; press it again to stop and transcribe. Imported audio
 uses **Transcribe audio locally**.
 Edit **Review transcript** before choosing **Insert transcript**. Nothing is
 inserted automatically. The review says whether text will use the captured caret
 or selection, or be added safely to the end of the note.
+
+Change **Speech → Dictation shortcut**, then choose **Save shortcut**, to use
+another modified key combination. The choice is saved on this device;
+**Use Ctrl+Space** restores the default.
 
 Disabling the plugin removes its controls and native engine code, not saved
 audio, links, or accepted transcripts. Public model weights have separate cleanup.

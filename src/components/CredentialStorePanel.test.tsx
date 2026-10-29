@@ -95,8 +95,12 @@ describe("credential store host controls", () => {
     render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} onOpenService={vi.fn()} />);
     const user = await unlock();
     expect(screen.queryByText("invented-secret-canary")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show secret for Synthetic service" }));
+    const reveal = screen.getByRole("button", { name: "Show secret for Synthetic service" });
+    expect(reveal.textContent).toBe("");
+    expect(reveal).toHaveAttribute("aria-pressed", "false");
+    await user.click(reveal);
     expect(await screen.findByText("invented-secret-canary")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Hide secret for Synthetic service" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "Copy username for Synthetic service" }));
     expect(native.store).toHaveBeenCalledWith("denote.credential-store", "/synthetic",
       expect.objectContaining({ action: "copy", field: "username", session: "synthetic-session" }));

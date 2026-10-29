@@ -944,6 +944,13 @@ without requiring Source or manual caret placement. The review explicitly
 distinguishes captured insertion/replacement from a safe end-of-note append.
 Model/license/download approval is separate from
 enablement. Transcript insertion is a distinct primary action after review.
+Sensitive sections use 12-pixel internal gaps and 16-pixel group spacing;
+paragraphs, fields, playback controls, and action rows never touch. Recording
+state/timer/meter/actions have their own measured gaps. Keep long supporting
+button labels wrapping at word boundaries in narrow sidebars.
+Dictation shortcut configuration is a labeled native text field in a disclosure,
+with explicit save and default actions, local persistence, and visible validation.
+It is excluded from recording gestures and disabled while capture is active.
 Credential secrets remain masked, revealing is explicit and short-lived, and
 copy/exposure/export risks stay written next to their controls. Password fields
 are cleared immediately after use and views disappear on lock or scope loss.
@@ -952,6 +959,9 @@ together; copy controls have exact field/service names and secrets never wrap
 into unreadable character columns. Narrow panels use a named, keyboard-focusable
 horizontal scroller. Service links reuse the standard external-link dialog with
 only one-time approval, never a new persistent domain choice.
+Reveal/hide uses the shared icon-button treatment with eye/eye-off glyphs,
+exact accessible action names, tooltips, and pressed state instead of wrapping
+Show/Hide text.
 
 ### Optional Mermaid diagrams
 

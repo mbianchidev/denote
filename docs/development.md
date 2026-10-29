@@ -1071,7 +1071,7 @@ or a guarantee against OS-owned plaintext copies.
 npx vitest run packages/plugin-sdk/src/sensitiveTools.test.ts \
   plugins/speech/tests plugins/credential-store/tests \
   src/components/CredentialStorePanel.test.tsx src/components/SpeechPanel.test.tsx \
-  src/lib/speech.test.ts src/lib/speechCapture.test.ts \
+  src/lib/speech.test.ts src/lib/speechCapture.test.ts src/lib/speechShortcut.test.ts src/lib/shortcuts.test.ts \
   src/components/AuthoringMarkdownEditor.test.tsx src/components/PresentationEditor.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
 npx tsc --noEmit -p tsconfig.benchmarks.json
@@ -1545,6 +1545,10 @@ Last vendored-library check: **2026-10-29**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
 the note-dictation and sensitive-sidebar follow-up using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
+The shortcut-configuration and sidebar-spacing follow-up repeated the complete
+release, tracker, and RustSec check later on the same date; the versions,
+compatibility constraints, and no-compatible-replacement outcome below remain
+unchanged.
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream
 fixes and backport requests, and each linked RustSec advisory were checked

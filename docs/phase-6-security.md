@@ -127,6 +127,11 @@ Speech sidebar. Repeated/composing keys and other modal/password/search input
 cannot trigger it. A second shortcut action finishes dictation and starts local
 transcription, never transcript insertion. Missing models are a recoverable
 state, not authorization to download or start a microphone later.
+The binding is configurable locally, with Control-Space as its default.
+Only validated modified combinations are saved; exact modifiers and the physical
+key code must match. Binding-edit controls are excluded from microphone consent,
+and entering configuration consumes a pending request rather than letting it
+start later. Capture must finish or cancel before configuration can change.
 Keep a written recording/paused indicator, elapsed time, input-level indicator,
 and named keyboard-operable stop/cancel controls visible for the full capture.
 Escape stops capture even while a control is focused. Pause does not stop being

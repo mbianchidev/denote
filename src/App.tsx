@@ -313,6 +313,7 @@ import {
   isSplitPaneShortcut,
   paneFocusShortcut,
 } from "./lib/shortcuts";
+import { DEFAULT_SPEECH_SHORTCUT, formatSpeechShortcut, loadSpeechShortcut, parseSpeechShortcut, saveSpeechShortcut } from "./lib/speechShortcut";
 import {
   previewReplacements,
   type ReplaceApplySummary,
@@ -1753,6 +1754,21 @@ function App() {
     !pluginController.busyPluginIds.has(provider.pluginId) &&
     pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)),
   [pluginController.authoringProviders, pluginController.busyPluginIds, pluginController.plugins]);
+  const [speechShortcutSettings, setSpeechShortcutSettings] = useState(() => {
+    try { return { value: loadSpeechShortcut(navigator.platform), error: null }; }
+    catch { return { value: { ...DEFAULT_SPEECH_SHORTCUT }, error: "The saved dictation shortcut could not be loaded. Ctrl+Space is active; set it again in Speech." }; }
+  });
+  const speechShortcut = speechShortcutSettings.value;
+  const speechShortcutLabel = formatSpeechShortcut(speechShortcut);
+  useEffect(() => {
+    if (speechShortcutSettings.error) showError(speechShortcutSettings.error);
+  }, [speechShortcutSettings.error, showError]);
+  const updateSpeechShortcut = useCallback((value: string) => {
+    const next = parseSpeechShortcut(value, navigator.platform);
+    saveSpeechShortcut(next);
+    setSpeechShortcutSettings({ value: next, error: null });
+    return formatSpeechShortcut(next);
+  }, []);
   const textStylingProvider = authoringProviders.find((provider) => provider.feature === "text-styling") ?? null;
   const noteCommentsProvider = authoringProviders.find((provider) => provider.feature === "note-comments") ?? null;
   const sensitiveTools = useMemo(() => (pluginController.sensitiveTools ?? []).filter((tool) =>
@@ -8815,7 +8831,7 @@ function App() {
       }
       if (event.key === "Escape" && (document.querySelector("[data-speech-capture]") ||
           event.target instanceof Element && event.target.closest(".sensitive-tool-panel"))) return;
-      if (isDictationShortcut(event) && speechTool && !event.repeat && !event.isComposing && !event.getModifierState("AltGraph") &&
+      if (isDictationShortcut(event, speechShortcut) && speechTool && !event.repeat && !event.isComposing && !event.getModifierState("AltGraph") &&
           activeFileTab?.encoding === "utf8" && /\.(md|markdown)$/i.test(activeFileTab.path) &&
           !activeFileTab.transient && !activeFileTab.readOnly && isDictationTarget(event.target) && event.target instanceof Element &&
           !event.target.closest(".presentation-editor, .presentation-stage-shell") &&
@@ -8941,6 +8957,7 @@ function App() {
     focusCurrentDocumentSearch,
     modalOpen,
     speechTool,
+    speechShortcut,
     openSpeech,
     saveTab,
     showError,
@@ -9790,7 +9807,7 @@ function App() {
       run: () => openSpeech(),
     }, {
       id: "host.sensitive.dictation", title: "Start dictation",
-      description: "Start local dictation in this note.", category: "Editor", shortcut: "Ctrl+Space",
+      description: "Start local dictation in this note.", category: "Editor", shortcut: speechShortcutLabel,
       disabled: !workspaceReady || !activeFileTab || activeFileTab.encoding !== "utf8" ||
         !/\.(md|markdown)$/i.test(activeFileTab.path) || Boolean(activeFileTab.transient) || Boolean(activeFileTab.readOnly),
       run: () => openSpeech(true),
@@ -10579,6 +10596,7 @@ function App() {
         nativeFullscreen={nativeFullscreenHost.enter}
         speech={speechTool ? {
           pluginId: speechTool.pluginId, workspaceScope: workspace.vaultPath,
+          shortcutLabel: speechShortcutLabel, onShortcutChange: updateSpeechShortcut,
           container: speechContainer, open: activeSensitiveTool?.id === speechTool.id, suspended: modalOpen,
           onOpen: () => showPluginSidebar(speechTool.id),
           onClose: () => showSidebarView("files"),

@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { Copy } from "lucide-react";
+import { Copy, Eye, EyeOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import {
@@ -220,7 +220,7 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose, onOpen
           </select></label>
           <button ref={actionRef} type="button" className={editing ? "secondary-button" : "primary-button"} disabled={busy} onClick={() => { setEditing("new"); setReplaceSecret(true); }}>New entry</button>
         </div>
-        <p className="authoring-muted">Show exposes a secret for 15 seconds. Copy can expose it to other apps and clipboard history; automatic clearing is best effort.</p>
+        <p className="authoring-muted">The eye button reveals a secret for 15 seconds. Copy can expose it to other apps and clipboard history; automatic clearing is best effort.</p>
         <div className="sensitive-tool__table" role="region" aria-label="Credential entries" tabIndex={0}><table>
           <caption>Unlocked credential entries</caption>
           <thead><tr><th scope="col">Service</th><th scope="col">Username</th><th scope="col">Secret</th><th scope="col">Actions</th></tr></thead>
@@ -250,12 +250,13 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose, onOpen
             <td>
               <output className="credential-secret" aria-label={`Secret for ${entry.service}`} aria-live="off">{revealed?.id === entry.id ? revealed.value : "********"}</output>
               <div className="credential-cell">
-              <button type="button" className="secondary-button" disabled={busy} aria-label={`${revealed?.id === entry.id ? "Hide" : "Show"} secret for ${entry.service}`}
+              <button type="button" className="icon-button" disabled={busy} aria-label={`${revealed?.id === entry.id ? "Hide" : "Show"} secret for ${entry.service}`}
+                title={revealed?.id === entry.id ? "Hide secret" : "Show secret"} aria-pressed={revealed?.id === entry.id}
                 onClick={() => revealed?.id === entry.id ? setRevealed(null) : void perform(async () => {
                   const result = await run({ action: "reveal", session: snapshot.session, id: entry.id });
                   if (result.kind !== "revealed") throw new Error("The secret could not be revealed.");
                   setRevealed({ id: entry.id, value: result.value });
-                })}>{revealed?.id === entry.id ? "Hide" : "Show"}</button>
+                })}>{revealed?.id === entry.id ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}</button>
               <button type="button" className="icon-button" disabled={busy} aria-label={`Copy secret for ${entry.service}`}
                 title="Copy secret" onClick={() => copyEntry(entry, "secret")}><Copy size={14} aria-hidden="true" /></button>
               </div>

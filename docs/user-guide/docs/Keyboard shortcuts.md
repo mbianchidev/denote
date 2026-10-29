@@ -20,7 +20,7 @@
 | Text style (optional Text highlighting and coloring) | `Command-Shift-H` | `Ctrl-Shift-H` |
 | Note comments (optional Note comments) | `Command-Option-M` | `Ctrl-Alt-M` |
 | Open as presentation (optional Markdown presentation slides) | `Command-Option-P` | `Ctrl-Alt-P` |
-| Start/finish dictation in a Markdown note (optional Speech) | `Ctrl-Space` | `Ctrl-Space` |
+| Start/finish dictation in a Markdown note (optional Speech, configurable) | `Ctrl-Space` by default | `Ctrl-Space` by default |
 | Code completion in source files (optional Code intelligence) | `Ctrl-Space` | `Ctrl-Space` |
 | Go to definition (optional Code intelligence) | `F12` | `F12` |
 | Find references (optional Code intelligence) | `Command-Shift-F12` | `Ctrl-Shift-F12` |
@@ -82,10 +82,12 @@ Speech and Credential store open from named activity-rail buttons as non-modal
 sidebars. Tab and Shift-Tab can leave them. With Speech enabled and its local
 model installed, Control-Space starts dictation in a writable Rich or Source
 note; the next press stops and transcribes locally. Review and insert the
-transcript explicitly. Escape stops recording before other editor actions; in
+transcript explicitly. Change the device-local binding under **Speech →
+Dictation shortcut**; the command palette and sidebar display the saved choice.
+Shortcut configuration never authorizes microphone access. Escape stops recording before other editor actions; in
 the idle sidebar it closes the panel. Credential row links, field-specific
 copy controls, entry forms, and deletion confirmation are keyboard-operable.
-Operating-system input-source shortcuts can intercept Control-Space before
+Operating-system shortcuts can intercept the configured combination before
 Denote receives it; the visible **Start dictation** control remains available.
 
 With the optional JSON and YAML viewer, Tab reaches the Structured/Raw group,

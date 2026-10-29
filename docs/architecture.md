@@ -1361,11 +1361,19 @@ registrations and renders non-modal sidebars; it does not add worker sidebar
 access or change immutable plugin packages. Speech stays owned by the focused
 Markdown editor and is portaled into the shared sidebar. Changing note/pane,
 sidebar, vault, or provider unmounts and releases that editor's capture.
-Control-Space is handled before editor completion only in an editable Markdown
+The device-local dictation binding defaults to Control-Space and is handled
+before editor completion only in an editable Markdown
 note or its Speech sidebar, excluding repeats, composition, extra modifiers,
 presentation, and modal input. One explicit request starts dictation; the next
 stops capture and transcribes locally. Model absence/unsupported platforms stay
 visible and never cause a download or later automatic microphone start.
+The host validates and normalizes shortcut text before persisting it under
+`denote.speech-shortcut.v1`; unmodified keys, malformed chords, and conflicting
+core/editor actions are rejected. The same parsed value drives matching,
+sidebar copy, and command-palette metadata. Configuration descendants are never
+dictation targets, focusing them consumes queued consent, and changes are
+disabled during capture. Storage/validation failures are visible and do not
+silently replace an active binding. No shortcut or key event goes to workers.
 The host snapshots an exact current selection at capture/import. Missing,
 ambiguous, or changed snapshots append at the current note's end instead of
 guessing a replacement; the review states that destination. Paragraph separation

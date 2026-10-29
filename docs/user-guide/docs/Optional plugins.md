@@ -317,10 +317,19 @@ identified as local. Choose **Local voice** and **Speech rate** before playback;
 operable. Missing offline voices are reported rather than replaced with a
 remote service.
 
-Press **Control-Space** in a Markdown note to start local dictation, in either
+Press **Control-Space** by default in a Markdown note to start local dictation, in either
 Rich or Source. Press it again, or choose **Finish recording**, to stop and
 transcribe. Dictation requires the separately downloaded local model first;
 the shortcut never downloads anything or silently selects a remote service.
+In **Speech → Dictation shortcut**, enter a modified combination such as
+`Ctrl+Shift+D`, then choose **Save shortcut**. It applies immediately across
+vaults and persists on this device. **Use Ctrl+Space** restores the default.
+Use Ctrl, Alt/Option, or Cmd/Command with Space, a letter, a number, or F1-F12.
+Unmodified keys, malformed combinations, and existing Denote actions are
+rejected without changing the active binding. Shortcut fields cannot start
+recording, and focusing configuration cancels a still-pending dictation request.
+Finish or cancel recording before changing its binding. OS-reserved combinations
+may be intercepted before Denote receives them.
 **Start recording**, **Start dictation**, and this shortcut are the only
 microphone entry points. No manual caret placement or Source switch is required.
 Denote uses a safely mapped caret or selection when available. Otherwise, or if
@@ -398,7 +407,8 @@ filename, format, random header, and padded length remain observable.
 
 After unlock, search/sort entries and use **New entry**, **Edit**, and confirmed
 **Delete**. An edit keeps the old secret unless **Replace existing secret** is
-chosen. **Show** is explicit and hides automatically after 15 seconds.
+chosen. The eye button (**Show secret**) reveals explicitly and changes to
+**Hide secret** while visible; it masks the secret again after 15 seconds.
 Service names, usernames, masked secrets, and row actions share one table.
 The table scrolls horizontally in a narrow sidebar and is keyboard-focusable.
 When present, an HTTP(S) service link appears below its name and opens through

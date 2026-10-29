@@ -29,6 +29,8 @@ export interface AdvancedAuthoringProps {
     container: HTMLElement | null;
     open: boolean;
     suspended: boolean;
+    shortcutLabel: string;
+    onShortcutChange: (value: string) => string;
     onOpen: () => void;
     onClose: () => void;
   };
@@ -297,6 +299,7 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
     {active && props.speech?.open && props.speech.container ? createPortal(<SpeechPanel pluginId={props.speech.pluginId} workspaceScope={props.speech.workspaceScope}
       path={path} source={source} selection={speechSelection} captureSelection={() => capture(true)}
       dictationRequest={dictationRequest} suspended={props.speech.suspended || dialog !== null}
+      shortcutLabel={props.speech.shortcutLabel} onShortcutChange={props.speech.onShortcutChange}
       readOnly={readOnly} onClose={() => {
         callbacks.current.speech?.onClose();
         speechSelection?.restore();

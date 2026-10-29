@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StrictMode } from "react";
 import { encodeSpeechWav } from "../lib/speech";
 import { SpeechPanel } from "./SpeechPanel";
+import { formatSpeechShortcut, parseSpeechShortcut } from "../lib/speechShortcut";
 
 const native = vi.hoisted(() => ({ status: vi.fn(), install: vi.fn(), remove: vi.fn(), transcribe: vi.fn(), cancel: vi.fn() }));
 const microphone = vi.hoisted(() => ({ start: vi.fn(), finish: vi.fn(), cancel: vi.fn(), pause: vi.fn() }));
@@ -48,6 +49,47 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("speech privacy and explicit actions", () => {
+  it("saves and resets the device shortcut without starting a microphone", async () => {
+    const user = userEvent.setup();
+    const change = vi.fn((value: string) => formatSpeechShortcut(parseSpeechShortcut(value, "MacIntel")));
+    render(<SpeechPanel {...props} onShortcutChange={change} />);
+    await user.click(screen.getByText("Dictation shortcut", { selector: "summary" }));
+    const input = screen.getByRole("textbox", { name: "Dictation shortcut" });
+    await user.clear(input); await user.type(input, "Control+Shift+D");
+    await user.click(screen.getByRole("button", { name: "Save shortcut" }));
+    expect(change).toHaveBeenLastCalledWith("Control+Shift+D");
+    expect(input).toHaveValue("Ctrl+Shift+D");
+    await user.click(screen.getByRole("button", { name: "Use Ctrl+Space" }));
+    expect(change).toHaveBeenLastCalledWith("Ctrl+Space");
+    expect(input).toHaveValue("Ctrl+Space");
+    expect(microphone.start).not.toHaveBeenCalled();
+  });
+
+  it("cancels a queued model-check gesture before editing a shortcut", async () => {
+    let ready: ((value: typeof localEngine) => void) | undefined;
+    native.status.mockImplementation(() => new Promise<typeof localEngine>((resolve) => { ready = resolve; }));
+    const user = userEvent.setup();
+    render(<SpeechPanel {...props} dictationRequest={1} onShortcutChange={(value) => value} />);
+    await screen.findByText("Checking the local model before dictation…");
+    await user.click(screen.getByText("Dictation shortcut", { selector: "summary" }));
+    await user.click(screen.getByRole("textbox", { name: "Dictation shortcut" }));
+    await act(async () => { ready?.(localEngine); });
+    expect(microphone.start).not.toHaveBeenCalled();
+  });
+
+  it("does not allow shortcut changes while microphone initialization is pending", async () => {
+    let ready: (() => void) | undefined;
+    microphone.start.mockImplementation(() => new Promise<void>((resolve) => { ready = resolve; }));
+    const user = userEvent.setup();
+    const view = render(<SpeechPanel {...props} dictationRequest={1} onShortcutChange={(value) => value} />);
+    await screen.findByText("Requesting microphone access…");
+    await user.click(screen.getByText("Dictation shortcut", { selector: "summary" }));
+    expect(screen.getByRole("textbox", { name: "Dictation shortcut" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save shortcut" })).toBeDisabled();
+    view.unmount();
+    await act(async () => { ready?.(); });
+  });
+
   it("starts the first explicit shortcut once under Development StrictMode and still releases it on unmount", async () => {
     const view = render(<StrictMode><SpeechPanel {...props} dictationRequest={1} /></StrictMode>);
     await screen.findByText("Recording microphone audio");

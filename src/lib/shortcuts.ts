@@ -1,4 +1,4 @@
-interface ShortcutEvent {
+export interface ShortcutEvent {
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
@@ -7,13 +7,21 @@ interface ShortcutEvent {
   key?: string;
 }
 
-export function isDictationShortcut(event: ShortcutEvent): boolean {
-  return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey &&
-    (event.code === "Space" || event.key === " ");
+export const DEFAULT_DICTATION_SHORTCUT: ShortcutEvent = {
+  ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, code: "Space", key: " ",
+};
+
+export function isDictationShortcut(event: ShortcutEvent, shortcut = DEFAULT_DICTATION_SHORTCUT): boolean {
+  const code = event.code && event.code !== "Unidentified" ? event.code :
+    event.key === " " ? "Space" : /^[a-z]$/i.test(event.key ?? "") ? `Key${event.key?.toUpperCase()}` :
+    /^[0-9]$/.test(event.key ?? "") ? `Digit${event.key}` : event.key;
+  return event.ctrlKey === shortcut.ctrlKey && event.metaKey === shortcut.metaKey &&
+    event.altKey === shortcut.altKey && event.shiftKey === shortcut.shiftKey && code === shortcut.code;
 }
 
 export function isDictationTarget(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;
+  if (target.closest("[data-speech-shortcut-setting]")) return false;
   if (target.closest('[data-sensitive-tool="speech"]')) return true;
   return Boolean(target.closest("[data-pane-id]") && !target.closest(
     "input, textarea, select, dialog, [role='dialog'], [role='search'], [role='searchbox'], [role='combobox'], [role='menu'], .cm-panels, .cm-tooltip",

@@ -281,3 +281,74 @@ test("dictation never reuses a saved table-cell selection after returning to the
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"]))
     .toBe(original.replace("# First slide", "# An invented local transcript."));
 });
+
+test("the configured speech shortcut persists, updates the palette, and cannot record from its editor", async ({ page }) => {
+  await command(page, "Authoring.md");
+  const rail = page.getByRole("navigation", { name: "Workspace views" });
+  await rail.getByRole("button", { name: "Speech", exact: true }).click();
+  const speech = page.getByRole("region", { name: "Speech", exact: true });
+  await expect(speech.getByRole("button", { name: "Start dictation", exact: true })).toBeEnabled();
+  await speech.locator("[data-speech-shortcut-setting] > summary").click();
+  const input = speech.getByRole("textbox", { name: "Dictation shortcut", exact: true });
+  await input.focus();
+  await page.keyboard.press("Control+Space");
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.microphoneRequests)).toBe(0);
+  await input.fill("Ctrl+Shift+D");
+  await speech.getByRole("button", { name: "Save shortcut", exact: true }).click();
+  await expect(speech.getByText("Ctrl+Shift+D starts dictation. Press it again to stop and transcribe locally.", { exact: true })).toBeVisible();
+  await input.fill("Ctrl+S");
+  await speech.getByRole("button", { name: "Save shortcut", exact: true }).click();
+  await expect(speech.getByRole("alert")).toContainText("already used");
+  await page.reload({ waitUntil: "networkidle" });
+  await expect(page.getByRole("button", { name: "Authoring.md", exact: true })).toBeVisible();
+  await command(page, "Authoring.md");
+  await rail.getByRole("button", { name: "Speech", exact: true }).click();
+  await expect(speech.getByText("Ctrl+Shift+D starts dictation. Press it again to stop and transcribe locally.", { exact: true })).toBeVisible();
+  await page.keyboard.press(`${primary}+p`);
+  const palette = page.getByRole("combobox", { name: "Search commands or filenames across vaults" });
+  await palette.fill("Start dictation");
+  await expect(page.getByRole("option").filter({ hasText: "Start dictation" }).first()).toContainText("Ctrl+Shift+D");
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Authoring.md", exact: true }).focus();
+  await page.keyboard.press("Control+Space");
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.microphoneRequests)).toBe(0);
+  await page.keyboard.press("Control+Shift+D");
+  await expect(speech.getByText("Recording microphone audio", { exact: true })).toBeVisible();
+  await expect(speech.getByRole("timer")).toHaveText(/0:0[1-9]/);
+  await page.keyboard.press("Control+Shift+D");
+  await expect(speech.getByRole("textbox", { name: "Review transcript", exact: true })).toHaveValue("An invented local transcript.");
+  await speech.locator("[data-speech-shortcut-setting] > summary").click();
+  await speech.getByRole("button", { name: "Use Ctrl+Space", exact: true }).click();
+  expect(await page.evaluate(() => localStorage.getItem("denote.speech-shortcut.v1"))).toBe("Ctrl+Space");
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.microphoneRequests)).toBe(1);
+});
+
+test("sensitive sidebar text and controls retain breathing room at narrow and wide sizes", async ({ page }) => {
+  await command(page, "Authoring.md");
+  const rail = page.getByRole("navigation", { name: "Workspace views" });
+  await rail.getByRole("button", { name: "Speech", exact: true }).click();
+  const speech = page.getByRole("region", { name: "Speech", exact: true });
+  const recording = speech.getByRole("region", { name: "Microphone recording", exact: true });
+  for (const width of [1440, 920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    const gap = await recording.evaluate((section) => {
+      const text = section.querySelector(":scope > p");
+      const button = [...section.querySelectorAll("button")].find((button) => button.textContent === "Start recording");
+      if (!text || !button) throw new Error("Missing speech spacing measurements");
+      return button.getBoundingClientRect().top - text.getBoundingClientRect().bottom;
+    });
+    expect(gap).toBeGreaterThanOrEqual(10);
+    const body = speech.locator(".sensitive-tool-panel__body");
+    expect(await body.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(1);
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await rail.getByRole("button", { name: "Credential store", exact: true }).click();
+  const credentials = page.getByRole("region", { name: "Credential store", exact: true });
+  await credentials.getByLabel("Master password", { exact: true }).fill("synthetic master password");
+  await credentials.getByRole("button", { name: "Unlock credential store", exact: true }).click();
+  const reveal = credentials.getByRole("button", { name: "Show secret for Synthetic service", exact: true });
+  await expect(reveal).toHaveText("");
+  await expect(reveal).toHaveAttribute("aria-pressed", "false");
+  await reveal.focus(); await page.keyboard.press("Enter");
+  await expect(credentials.getByRole("button", { name: "Hide secret for Synthetic service", exact: true })).toHaveAttribute("aria-pressed", "true");
+});
