@@ -5,7 +5,7 @@ import {
   type LexicalExportVisitor, type MdastImportVisitor, realmPlugin,
 } from "@mdxeditor/editor";
 import {
-  $applyNodeReplacement, $createRangeSelection, $getNodeByKey, $getRoot, $getSelection, $isElementNode, $isRangeSelection, $isTextNode, $setSelection,
+  $applyNodeReplacement, $createRangeSelection, $createRangeSelectionFromDom, $getNodeByKey, $getRoot, $getSelection, $isElementNode, $isRangeSelection, $isTextNode, $setSelection,
   HISTORY_PUSH_TAG,
   TextNode, type EditorConfig, type NodeKey, type SerializedTextNode, type RangeSelection,
 } from "lexical";
@@ -56,7 +56,27 @@ function AuthoringSelectionBridge() {
       if (!root?.isConnected || editor.isComposing() ||
           root.closest<HTMLElement>(".mdxeditor-rich-text-editor")?.style.display === "none") return null;
       return editor.getEditorState().read(() => {
-        remember();
+        // A window shortcut can run before Lexical commits the native selection.
+        const native = window.getSelection();
+        const element = native?.anchorNode instanceof Element ? native.anchorNode : native?.anchorNode?.parentElement;
+        const owner = element?.closest('[contenteditable="true"]');
+        if (allowCollapsed && owner && owner !== root) return null;
+        const direct = native?.anchorNode && native.focusNode && root.contains(native.anchorNode) && root.contains(native.focusNode)
+          ? $createRangeSelectionFromDom(native, editor) : null;
+        if (allowCollapsed && !direct) return null;
+        if (direct) {
+          const current = $getSelection();
+          const anchor = direct.anchor.getNode();
+          if ($isRangeSelection(current) && current.anchor.key === direct.anchor.key) {
+            direct.format = current.format; direct.style = current.style;
+          } else if ($isTextNode(anchor)) {
+            direct.format = anchor.getFormat(); direct.style = anchor.getStyle();
+          } else if ($isElementNode(anchor)) {
+            direct.format = anchor.getTextFormat(); direct.style = anchor.getTextStyle();
+          }
+          saved = direct;
+        }
+        else if (!saved) remember();
         if (!saved || saved.isCollapsed() && !allowCollapsed) return null;
         const source = context.source();
         const range = richSourceSelection(source, saved, context.snapshot());
@@ -87,7 +107,7 @@ function AuthoringSelectionBridge() {
             return true;
           },
         } : null;
-      });
+      }, { editor });
     });
     const unregisterEdit = context.binding.registerEdit((edit, next) => {
       const root = editor.getRootElement();

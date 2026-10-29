@@ -7,6 +7,19 @@ interface ShortcutEvent {
   key?: string;
 }
 
+export function isDictationShortcut(event: ShortcutEvent): boolean {
+  return event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey &&
+    (event.code === "Space" || event.key === " ");
+}
+
+export function isDictationTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest('[data-sensitive-tool="speech"]')) return true;
+  return Boolean(target.closest("[data-pane-id]") && !target.closest(
+    "input, textarea, select, dialog, [role='dialog'], [role='search'], [role='searchbox'], [role='combobox'], [role='menu'], .cm-panels, .cm-tooltip",
+  ));
+}
+
 export function isReplaceShortcut(
   event: ShortcutEvent,
   platform: string,

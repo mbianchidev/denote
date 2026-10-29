@@ -306,7 +306,8 @@ Try the [Presentation deck](<../plugins/Presentation.md>).
 ## Speech, voice notes, and transcription
 
 Speech is off by default. Enable it under **Accessibility**, open a Markdown
-note, and choose **Speech** from the command palette or note toolbar. Its single
+note, and choose **Speech** in the activity rail, command palette, or note
+toolbar. Its sidebar stays beside the note rather than blocking the editor. Its single
 permission opens trusted host controls; downloaded plugin code never receives
 note text, audio, transcripts, device handles, or filesystem access.
 
@@ -316,13 +317,23 @@ identified as local. Choose **Local voice** and **Speech rate** before playback;
 operable. Missing offline voices are reported rather than replaced with a
 remote service.
 
-Place the caret or select text before opening Speech. Use Source when a Rich
-position is ambiguous. **Start recording** and **Start dictation** are the only
-microphone entry points. The panel shows written recording/paused state, elapsed
+Press **Control-Space** in a Markdown note to start local dictation, in either
+Rich or Source. Press it again, or choose **Finish recording**, to stop and
+transcribe. Dictation requires the separately downloaded local model first;
+the shortcut never downloads anything or silently selects a remote service.
+**Start recording**, **Start dictation**, and this shortcut are the only
+microphone entry points. No manual caret placement or Source switch is required.
+Denote uses a safely mapped caret or selection when available. Otherwise, or if
+the note changed during recording, reviewed text is added to the end without
+replacing existing source. The review names the insertion destination.
+The panel shows written recording/paused state, elapsed
 time, and input level. Pause/resume, finish, and cancel use native buttons.
-Escape stops recording; cancelling a pending permission request also stops any
+Escape stops recording even while focus is in the note; it cancels a pending
+permission request and also stops any
 late grant. Backgrounding, closing, locking, switching vaults, and removing the
-plugin release capture and playback resources.
+plugin release capture and playback resources. Opening another dialog stops
+capture and clears unsaved audio and transcript drafts; nothing resumes
+automatically afterward.
 
 Recordings are limited to ten minutes and normalized to mono PCM16 WAV at
 16 kHz. Review the stopped recording, then choose **Save voice note**. Denote
@@ -373,7 +384,8 @@ Try [Speech practice](<../plugins/Speech.md>).
 ## Encrypted credential store
 
 Enable the optional store under **Security and privacy**, then choose
-**Credential store** from the command palette. Enabling does not create a file.
+**Credential store** in the activity rail or command palette. Its sidebar
+contains the credential table and entry forms. Enabling does not create a file.
 Create a separate master password of at least 12 characters, or unlock the
 existing store. There is no implicit OS-keychain remembrance or password
 recovery mechanism.
@@ -387,13 +399,21 @@ filename, format, random header, and padded length remain observable.
 After unlock, search/sort entries and use **New entry**, **Edit**, and confirmed
 **Delete**. An edit keeps the old secret unless **Replace existing secret** is
 chosen. **Show** is explicit and hides automatically after 15 seconds.
-**Copy username** and **Copy secret** resolve the selected field natively;
+Service names, usernames, masked secrets, and row actions share one table.
+The table scrolls horizontally in a narrow sidebar and is keyboard-focusable.
+When present, an HTTP(S) service link appears below its name and opens through
+Denote's external-link review. New approval is one-time: credential service
+addresses are not added to allowed domains. Links with embedded credentials,
+unsafe protocols, or invalid addresses are non-navigating and marked
+**Unsupported service link**. External-link failures never log the address.
+**Copy service**, **Copy username**, and **Copy secret** resolve the selected field natively;
 plugin workers and renderer copy responses never receive its value.
 Clipboard clearing is best effort, after the selected timeout, and preserves
 different newer clipboard contents.
 
 **Lock now**, the chosen inactivity timeout, focus loss, vault lock/switch,
-plugin removal, and exit clear the view and native key. Background polling is
+switching away from the credential sidebar, plugin removal, and exit clear the
+view and native key. Pending service-link approval is also cleared on lock. Background polling is
 not activity. Failed authentication exposes no entry metadata and never
 replaces an existing store with an apparently valid empty file.
 

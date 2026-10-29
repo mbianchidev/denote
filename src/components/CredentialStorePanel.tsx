@@ -1,16 +1,21 @@
 import { listen } from "@tauri-apps/api/event";
+import { Copy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import {
-  isCredentialResult, type CredentialEntry, type CredentialRequest,
+  credentialServiceUrl, isCredentialResult, type CredentialCopyField, type CredentialEntry, type CredentialRequest,
   type CredentialResult, type CredentialSnapshot,
 } from "../lib/credentials";
-import { AuthoringDialog } from "./AuthoringDialog";
+import { SensitiveToolPanel } from "./SensitiveToolPanel";
 import "./SensitiveTools.css";
 
-export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
+export function CredentialStorePanel({ pluginId, workspaceScope, onClose, onOpenService, onLock }: {
   pluginId: string; workspaceScope: string; onClose: () => void;
+  onOpenService: (url: string) => Promise<void>;
+  onLock?: () => void;
 }) {
+  const callbacks = useRef({ onOpenService, onLock });
+  callbacks.current = { onOpenService, onLock };
   const [snapshot, setSnapshot] = useState<CredentialSnapshot | null>(null);
   const snapshotRef = useRef(snapshot);
   snapshotRef.current = snapshot;
@@ -45,11 +50,13 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
   const release = (session: string) => api.credentialStore(pluginId, workspaceScope, { action: "lock", session });
   const lock = () => {
     ++epoch.current;
+    callbacks.current.onLock?.();
     const previous = snapshotRef.current;
     snapshotRef.current = null;
     setSnapshot(null); setRevealed(null); setEditing(null); setDeleting(null); setQuery("");
     setBusy(false);
     clearInputs();
+    callbacks.current.onLock?.();
     setStatus("Credential store locked.");
     if (previous) void release(previous.session).catch((caught) => { if (alive.current) setError(errorMessage(caught)); });
   };
@@ -151,8 +158,14 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
     [entry.service, entry.username, entry.url, entry.notes].some((value) => value.toLocaleLowerCase().includes(query.toLocaleLowerCase())))
     .sort((left, right) => left[sort].localeCompare(right[sort])) ?? [];
   const restoreAction = () => window.requestAnimationFrame(() => actionRef.current?.focus());
+  const copyEntry = (entry: CredentialEntry, field: CredentialCopyField) => void perform(async () => {
+    const current = snapshotRef.current;
+    if (!current) throw new Error("Unlock the credential store before copying.");
+    await run({ action: "copy", session: current.session, id: entry.id, field, timeout: clipboardTimeout });
+    setStatus(`Copied ${field}. Denote will try to clear it after ${clipboardTimeout} seconds.`);
+  });
 
-  return <AuthoringDialog title="Credential store" onClose={onClose}>
+  return <SensitiveToolPanel title="Credential store" feature="credential-store" onClose={onClose}>
     <div ref={root} className="sensitive-tool" onKeyDownCapture={activity} onPointerDownCapture={activity}>
       <p className="authoring-muted">All entry fields stay encrypted in .denote/credentials.dncred. Forgotten master passwords cannot be recovered.</p>
       {error ? <p role="alert" className="authoring-error">{error}</p> : null}
@@ -179,6 +192,7 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
           await run(selected.kind === "export" ? { action: "export", ticket: selected.ticket, password, confirmed } :
             { action: "import", ticket: selected.ticket, password, current_password: currentPassword, confirmed, timeout: inactivity });
           setStatus(selected.kind === "export" ? "Plaintext export saved. Protect or delete the exported file yourself." : "Encrypted backup imported.");
+          restoreAction();
         });
       }}>
         <h3>{transfer.kind === "export" ? "Authenticate plaintext export" : "Authenticate encrypted import"}</h3>
@@ -190,7 +204,7 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
           {transfer.kind === "export" ? "I understand this file exposes every credential in plaintext." : "Replace the current encrypted store with this authenticated backup."}
         </label>
         <div className="authoring-actions">
-          <button type="button" className="secondary-button" onClick={() => setTransfer(null)}>Cancel transfer</button>
+          <button type="button" className="secondary-button" onClick={() => { setTransfer(null); restoreAction(); }}>Cancel transfer</button>
           <button type="submit" className="primary-button" disabled={busy}>{transfer.kind === "export" ? "Export plaintext" : "Import encrypted backup"}</button>
         </div>
       </form> : !snapshot ? <form onSubmit={(event) => { event.preventDefault(); authenticate(event.currentTarget); }}>
@@ -204,27 +218,49 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
           <label>Sort entries <select value={sort} onChange={(event) => setSort(event.currentTarget.value === "username" ? "username" : "service")}>
             <option value="service">Service</option><option value="username">Username</option>
           </select></label>
-          <button ref={actionRef} type="button" className="secondary-button" disabled={busy} onClick={() => { setEditing("new"); setReplaceSecret(true); }}>New entry</button>
+          <button ref={actionRef} type="button" className={editing ? "secondary-button" : "primary-button"} disabled={busy} onClick={() => { setEditing("new"); setReplaceSecret(true); }}>New entry</button>
         </div>
         <p className="authoring-muted">Show exposes a secret for 15 seconds. Copy can expose it to other apps and clipboard history; automatic clearing is best effort.</p>
-        <div className="sensitive-tool__table"><table>
+        <div className="sensitive-tool__table" role="region" aria-label="Credential entries" tabIndex={0}><table>
           <caption>Unlocked credential entries</caption>
           <thead><tr><th scope="col">Service</th><th scope="col">Username</th><th scope="col">Secret</th><th scope="col">Actions</th></tr></thead>
-          <tbody>{rows.map((entry) => <tr key={entry.id}>
-            <th scope="row">{entry.service}</th><td>{entry.username}</td>
-            <td><output aria-label={`Secret for ${entry.service}`} aria-live="off">{revealed?.id === entry.id ? revealed.value : "********"}</output></td>
-            <td><div className="authoring-actions">
+          <tbody>{rows.map((entry) => {
+            const url = credentialServiceUrl(entry.url);
+            return <tr key={entry.id}>
+            <th scope="row">
+              <div className="credential-cell">
+                <span>{entry.service}</span>
+                <button type="button" className="icon-button" disabled={busy} aria-label={`Copy service for ${entry.service}`}
+                  title="Copy service" onClick={() => copyEntry(entry, "service")}><Copy size={14} aria-hidden="true" /></button>
+              </div>
+              {url ? <a href={url} aria-label={`Open ${entry.service}`} onClick={(event) => {
+                event.preventDefault();
+                void perform(async () => {
+                  try { await callbacks.current.onOpenService(url); }
+                  catch { throw new Error("The service link could not be opened. Check your browser and try again."); }
+                });
+              }} onAuxClick={(event) => event.preventDefault()} onContextMenu={(event) => event.preventDefault()}>{new URL(url).host}</a> :
+                entry.url ? <span className="authoring-error">Unsupported service link</span> : null}
+            </th>
+            <td><div className="credential-cell">
+              <span>{entry.username}</span>
+              <button type="button" className="icon-button" disabled={busy} aria-label={`Copy username for ${entry.service}`}
+                title="Copy username" onClick={() => copyEntry(entry, "username")}><Copy size={14} aria-hidden="true" /></button>
+            </div></td>
+            <td>
+              <output className="credential-secret" aria-label={`Secret for ${entry.service}`} aria-live="off">{revealed?.id === entry.id ? revealed.value : "********"}</output>
+              <div className="credential-cell">
               <button type="button" className="secondary-button" disabled={busy} aria-label={`${revealed?.id === entry.id ? "Hide" : "Show"} secret for ${entry.service}`}
                 onClick={() => revealed?.id === entry.id ? setRevealed(null) : void perform(async () => {
                   const result = await run({ action: "reveal", session: snapshot.session, id: entry.id });
                   if (result.kind !== "revealed") throw new Error("The secret could not be revealed.");
                   setRevealed({ id: entry.id, value: result.value });
                 })}>{revealed?.id === entry.id ? "Hide" : "Show"}</button>
-              {(["username", "secret"] as const).map((field) => <button key={field} type="button" className="secondary-button" disabled={busy}
-                aria-label={`Copy ${field} for ${entry.service}`} onClick={() => void perform(async () => {
-                  await run({ action: "copy", session: snapshot.session, id: entry.id, field, timeout: clipboardTimeout });
-                  setStatus(`Copied ${field}. Denote will try to clear it after ${clipboardTimeout} seconds.`);
-                })}>Copy {field}</button>)}
+              <button type="button" className="icon-button" disabled={busy} aria-label={`Copy secret for ${entry.service}`}
+                title="Copy secret" onClick={() => copyEntry(entry, "secret")}><Copy size={14} aria-hidden="true" /></button>
+              </div>
+            </td>
+            <td><div className="authoring-actions">
               <button type="button" className="secondary-button" aria-label={`Edit ${entry.service}`} disabled={busy}
                 onClick={() => { setEditing(entry); setReplaceSecret(false); setRevealed(null); }}>Edit</button>
               <button type="button" className="secondary-button" aria-label={`Delete ${entry.service}`} disabled={busy}
@@ -237,7 +273,8 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
                 })}>Confirm delete</button>
               </span> : null}
             </div></td>
-          </tr>)}</tbody>
+          </tr>;
+          })}</tbody>
         </table></div>
         {!rows.length ? <p>No matching entries.</p> : null}
         {editing ? <form key={editing === "new" ? "new" : editing.id} onSubmit={(event) => {
@@ -275,5 +312,5 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
         </div>}
       </>}
     </div>
-  </AuthoringDialog>;
+  </SensitiveToolPanel>;
 }

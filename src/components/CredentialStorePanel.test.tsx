@@ -44,8 +44,55 @@ async function unlock() {
 }
 
 describe("credential store host controls", () => {
+  it("opens in the sidebar with a service link and copies service names without returning clipboard contents", async () => {
+    const onOpenService = vi.fn(async () => {});
+    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}}
+      onOpenService={onOpenService} />);
+    expect(screen.getByRole("region", { name: "Credential store" })).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const user = await unlock();
+    const link = screen.getByRole("link", { name: "Open Synthetic service" });
+    expect(link).toHaveAttribute("href", "https://synthetic.invalid/");
+    link.focus();
+    await user.keyboard("{Enter}");
+    expect(onOpenService).toHaveBeenCalledExactlyOnceWith("https://synthetic.invalid/");
+    await user.click(screen.getByRole("button", { name: "Copy service for Synthetic service" }));
+    expect(native.store).toHaveBeenCalledWith("denote.credential-store", "/synthetic",
+      { action: "copy", session: "synthetic-session", id: entry.id, field: "service", timeout: 30 });
+    expect(screen.queryByText("invented-secret-canary")).not.toBeInTheDocument();
+  });
+
+  it.each(["javascript:alert(1)", "file:///synthetic/private", "https://invented:secret@synthetic.invalid", "//synthetic.invalid"])(
+    "keeps unsafe service URL %s non-navigating",
+    async (url) => {
+      const invoke = native.store.getMockImplementation();
+      if (!invoke) throw new Error("Missing synthetic native host.");
+      native.store.mockImplementation(async (plugin: string, scope: string, request: CredentialRequest) => {
+        const result = await invoke(plugin, scope, request);
+        return result.kind === "snapshot" ? { ...result, entries: [{ ...entry, url }] } : result;
+      });
+      const onOpenService = vi.fn(async () => {});
+      render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}}
+        onOpenService={onOpenService} />);
+      await unlock();
+      expect(screen.queryByRole("link", { name: "Open Synthetic service" })).not.toBeInTheDocument();
+      expect(screen.getByText("Unsupported service link")).toBeVisible();
+      expect(onOpenService).not.toHaveBeenCalled();
+    },
+  );
+
+  it("reports service navigation failures without exposing the address or native diagnostic", async () => {
+    const onOpenService = vi.fn(async () => { throw new Error("invented-private-url-and-token"); });
+    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}}
+      onOpenService={onOpenService} />);
+    const user = await unlock();
+    await user.click(screen.getByRole("link", { name: "Open Synthetic service" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("The service link could not be opened.");
+    expect(screen.queryByText("invented-private-url-and-token")).not.toBeInTheDocument();
+  });
+
   it("keeps secrets masked, reveals explicitly, copies fields natively, and clears all visible metadata on focus loss", async () => {
-    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} />);
+    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} onOpenService={vi.fn()} />);
     const user = await unlock();
     expect(screen.queryByText("invented-secret-canary")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Show secret for Synthetic service" }));
@@ -61,7 +108,7 @@ describe("credential store host controls", () => {
   });
 
   it("does not turn a failed unlock into a new empty store", async () => {
-    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} />);
+    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} onOpenService={vi.fn()} />);
     const user = userEvent.setup();
     const input = await screen.findByLabelText("Master password");
     await waitFor(() => expect(input).toBeEnabled());
@@ -74,7 +121,7 @@ describe("credential store host controls", () => {
   });
 
   it("requires a fresh master password and explicit risk confirmation for every plaintext export", async () => {
-    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} />);
+    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} onOpenService={vi.fn()} />);
     const user = await unlock();
     await user.click(screen.getByRole("button", { name: "Plaintext export" }));
     const password = await screen.findByLabelText("Current master password");
@@ -91,7 +138,7 @@ describe("credential store host controls", () => {
   });
 
   it("edits without revealing the old secret and retains a recoverable draft after a save conflict", async () => {
-    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} />);
+    render(<CredentialStorePanel pluginId="denote.credential-store" workspaceScope="/synthetic" onClose={() => {}} onOpenService={vi.fn()} />);
     const user = await unlock();
     await user.click(screen.getByRole("button", { name: "Edit Synthetic service" }));
     expect(screen.queryByLabelText("Password or token")).not.toBeInTheDocument();

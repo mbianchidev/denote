@@ -929,16 +929,29 @@ The optional 140 ms fade is state motion and is disabled for reduced motion.
 
 ### Optional sensitive tools
 
-Speech and Credential store reuse native authoring dialogs and shared compact
-button/focus/forced-colors treatment. Tab order follows the visible controls;
+Speech and Credential store have named activity-rail actions and host-rendered,
+non-modal sidebars using the existing resizable vault-sidebar layout. They
+participate in plugin ordering, grouping, and visibility without granting
+downloaded workers a sidebar permission. Headers, compact controls, semantic
+theme colors, and focus/forced-colors treatment match other plugin panels.
+Tab can leave either panel; closing restores available trigger/editor focus.
+Tab order follows the visible controls;
 capture moves focus to finish/cancel, stopped audio to its next explicit action,
 and slide reordering follows the moved slide rather than a newly disabled button.
 Recording has written state, a timer, input meter, and measured-danger border,
-never a color-only indicator. Model/license/download approval is separate from
+never a color-only indicator. Control-Space starts and stops note dictation
+without requiring Source or manual caret placement. The review explicitly
+distinguishes captured insertion/replacement from a safe end-of-note append.
+Model/license/download approval is separate from
 enablement. Transcript insertion is a distinct primary action after review.
 Credential secrets remain masked, revealing is explicit and short-lived, and
 copy/exposure/export risks stay written next to their controls. Password fields
 are cleared immediately after use and views disappear on lock or scope loss.
+The credential table keeps name/link, username, masked secret, and row actions
+together; copy controls have exact field/service names and secrets never wrap
+into unreadable character columns. Narrow panels use a named, keyboard-focusable
+horizontal scroller. Service links reuse the standard external-link dialog with
+only one-time approval, never a new persistent domain choice.
 
 ### Optional Mermaid diagrams
 

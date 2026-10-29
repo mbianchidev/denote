@@ -103,6 +103,14 @@ pub(crate) struct EntryInput {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum CopyField {
+    Service,
+    Username,
+    Secret,
+}
+
+#[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "kebab-case", deny_unknown_fields)]
 pub(crate) enum Request {
     Status,
@@ -141,7 +149,7 @@ pub(crate) enum Request {
     Copy {
         session: String,
         id: String,
-        field: String,
+        field: CopyField,
         timeout: u64,
     },
     Export {
@@ -632,10 +640,10 @@ fn execute(
                 .iter()
                 .find(|entry| entry.id == entry_id)
                 .ok_or_else(|| invalid("The credential no longer exists. Reload the store."))?;
-            let value = match field.as_str() {
-                "username" => &entry.username,
-                "secret" => &entry.secret,
-                _ => return Err(invalid("Choose username or secret to copy.")),
+            let value = match field {
+                CopyField::Service => &entry.service,
+                CopyField::Username => &entry.username,
+                CopyField::Secret => &entry.secret,
             };
             copy(app, &mut state, plugin, value, timeout, generation)?;
             Ok(ResultView::Done)
@@ -985,6 +993,24 @@ pub(super) fn write_external(path: &Path, bytes: &[u8]) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credential_copy_requests_allow_only_explicit_entry_fields() {
+        for field in ["service", "username", "secret"] {
+            let request = serde_json::json!({
+                "action": "copy", "session": "synthetic-session", "id": "synthetic-entry",
+                "field": field, "timeout": 30
+            });
+            assert!(serde_json::from_value::<Request>(request).is_ok());
+        }
+        for field in ["password", "key", "url", "notes", ""] {
+            let request = serde_json::json!({
+                "action": "copy", "session": "synthetic-session", "id": "synthetic-entry",
+                "field": field, "timeout": 30
+            });
+            assert!(serde_json::from_value::<Request>(request).is_err());
+        }
+    }
 
     #[test]
     fn credential_sessions_expire_and_do_not_accept_other_owners_or_vaults() {

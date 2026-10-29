@@ -80,6 +80,13 @@ renderer and schedules a bounded clipboard expiry. Clear only when clipboard
 contents still match the value Denote copied; do not erase newer user content.
 Report clipboard errors using fixed messages. Communicate that clipboard
 history and other applications can retain a copy.
+The credential sidebar exposes only HTTP(S) service links without embedded
+credentials. An explicit navigation action reuses external-link review; new
+approval applies once and never writes a service address to the persistent
+domain policy. Lock/unmount clears pending link approval, and failures log only
+a fixed category, not the address or native diagnostic. Opening a service
+deliberately transfers its address to the external browser, whose history,
+extensions, and storage remain outside Denote's cleanup.
 
 Encrypted backup contains only the container ciphertext and remains usable
 after removal of the plugin. Import validates format, bounds, authentication,
@@ -114,13 +121,24 @@ microphone recording/dictation, then local transcription and review. Restrict
 TTS to voices explicitly identified as local; never silently use remote speech
 recognition or synthesis.
 
-Microphone permission is requested only from Start recording or Start dictation.
+Microphone permission is requested only from Start recording, Start dictation,
+or an explicit Control-Space action in the active editable Markdown note or its
+Speech sidebar. Repeated/composing keys and other modal/password/search input
+cannot trigger it. A second shortcut action finishes dictation and starts local
+transcription, never transcript insertion. Missing models are a recoverable
+state, not authorization to download or start a microphone later.
 Keep a written recording/paused indicator, elapsed time, input-level indicator,
 and named keyboard-operable stop/cancel controls visible for the full capture.
 Escape stops capture even while a control is focused. Pause does not stop being
 visible. End every media track and close every audio context on completion,
 cancel, error, lock, switch, close, or plugin withdrawal. Reject permission
 results that arrive after cancellation.
+An initial model-status check cannot turn an old shortcut into later microphone
+consent: cancellation, deactivation, a second pending shortcut, status failure,
+or a superseding manual action consumes that request. Model installation never
+restarts it. Finishing capture retains an owned cancellation handle until its
+bounded worklet flush settles, so teardown can release it immediately and zero
+late audio. Capture failures do not automatically transcribe partial audio.
 
 Record and decode bounded audio in memory. Attach only after explicit finish
 and successful collision-safe host storage through the ordinary vault

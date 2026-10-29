@@ -1,5 +1,6 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { Nodes } from "mdast";
+import type { AuthoringSelection } from "./authoring";
 
 export const SPEECH_SAMPLE_RATE = 16000;
 export const MAX_SPEECH_SECONDS = 600;
@@ -22,6 +23,19 @@ export interface SpeechTranscript { text: string; words: Array<{ text: string; s
 export interface SpeechAudioBinding {
   read: (href: string) => Promise<{ base64: string; mime: string }>;
   export: (href: string) => Promise<boolean>;
+}
+
+export function speechInsertionTarget(source: string, selection: AuthoringSelection | null) {
+  if (selection?.source === source) {
+    if (!Number.isInteger(selection.from) || !Number.isInteger(selection.to) ||
+        selection.from < 0 || selection.to < selection.from || selection.to > source.length) {
+      throw new Error("The insertion position is invalid. Reopen this note before inserting.");
+    }
+    return { from: selection.from, to: selection.to, append: false, prefix: "" };
+  }
+  const newline = source.includes("\r\n") ? "\r\n" : source.includes("\r") ? "\r" : "\n";
+  const prefix = !source || source.endsWith(newline + newline) ? "" : source.endsWith(newline) ? newline : newline + newline;
+  return { from: source.length, to: source.length, append: true, prefix };
 }
 
 export function localAudioLink(href: string): boolean {

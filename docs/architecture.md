@@ -1356,12 +1356,32 @@ declarative `sensitiveTools.register` contributions. SDK and native validation
 require an isolated single-permission worker; no workspace, network, process,
 clipboard, keychain, or note-event capability can be combined with either.
 Workers receive no user content. The trusted host owns all UI and native I/O.
+The host derives activity-rail entries from the existing sensitive-tool
+registrations and renders non-modal sidebars; it does not add worker sidebar
+access or change immutable plugin packages. Speech stays owned by the focused
+Markdown editor and is portaled into the shared sidebar. Changing note/pane,
+sidebar, vault, or provider unmounts and releases that editor's capture.
+Control-Space is handled before editor completion only in an editable Markdown
+note or its Speech sidebar, excluding repeats, composition, extra modifiers,
+presentation, and modal input. One explicit request starts dictation; the next
+stops capture and transcribes locally. Model absence/unsupported platforms stay
+visible and never cause a download or later automatic microphone start.
+The host snapshots an exact current selection at capture/import. Missing,
+ambiguous, or changed snapshots append at the current note's end instead of
+guessing a replacement; the review states that destination. Paragraph separation
+preserves existing bytes and line endings, and final editor/native writes retain
+their ordinary source/hash fences.
 
 `src-tauri/src/sensitive/` fences operations by enabled permission, canonical
 active vault, unlock state, and opaque session/operation identity. Native
 credential keys use zeroizing ownership, monotonic and wall-clock expiry,
 generation invalidation, and owner-specific cleanup. The independently encrypted
 container in `vault/credentials.rs` never uses note/history/index writers.
+Credential table copies resolve only the typed service/username/secret field
+inside native code and return no copied value. HTTP(S) service links reject
+embedded credentials and unsafe addresses. Their external-link approval is
+one-time, is removed on credential lock/unmount, never persists a credential
+domain, and redacts destination/native error details from failure diagnostics.
 Its fixed-format authenticated header, Argon2id parameters, nonce generation,
 closed schema, padding, conflict checks, backup/import, and separately
 authenticated export are described in [the security design](phase-6-security.md).

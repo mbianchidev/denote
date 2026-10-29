@@ -1087,6 +1087,13 @@ source preservation, and removal. Native tests independently verify ciphertext
 and tampering, private file permissions, locks/conflicts, whole-vault sweeps,
 recovery ownership, and preservation of notes/decks/comments/audio/credentials.
 Canary scans use invented values and include generated database/temp files.
+The sensitive sidebar journeys additionally cover both rail entries,
+Control-Space start/stop in Rich without a pre-positioned caret, exact Rich
+selection replacement, microphone-track teardown when switching panels, and
+credential table create/copy/link/delete actions. Service-link review must not
+persist a credential domain. Component regressions cover pending model checks,
+late permission/flush results, source-change append behavior, and refusal to
+record in read mode or after another dialog takes over.
 
 Windows CI additionally provisions a disposable, unprivileged synthetic account
 and an explicitly readable fixture under Public Documents. A readable control
@@ -1534,9 +1541,9 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-28**.
+Last vendored-library check: **2026-10-29**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the test-output and sensitive-boundary follow-ups using the
+the note-dictation and sensitive-sidebar follow-up using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream

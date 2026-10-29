@@ -11,6 +11,16 @@ export interface CredentialEntryInput extends Omit<CredentialEntry, "id"> {
   secret: string | null;
 }
 
+export type CredentialCopyField = "service" | "username" | "secret";
+
+export function credentialServiceUrl(value: string): string | null {
+  if (!/^https?:\/\//i.test(value) || /[\u0000-\u0020\u007f\\]/.test(value)) return null;
+  try {
+    const url = new URL(value);
+    return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password ? url.href : null;
+  } catch { return null; }
+}
+
 export type CredentialRequest =
   | { action: "status" }
   | { action: "create"; password: string; confirmation: string; timeout: number }
@@ -19,7 +29,7 @@ export type CredentialRequest =
   | { action: "upsert"; session: string; hash: string; entry: CredentialEntryInput }
   | { action: "delete"; session: string; hash: string; id: string }
   | { action: "reveal"; session: string; id: string }
-  | { action: "copy"; session: string; id: string; field: "username" | "secret"; timeout: number }
+  | { action: "copy"; session: string; id: string; field: CredentialCopyField; timeout: number }
   | { action: "export"; ticket: string; password: string; confirmed: boolean }
   | { action: "import"; ticket: string; password: string; current_password: string; confirmed: boolean; timeout: number };
 

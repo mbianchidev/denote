@@ -20,7 +20,8 @@
 | Text style (optional Text highlighting and coloring) | `Command-Shift-H` | `Ctrl-Shift-H` |
 | Note comments (optional Note comments) | `Command-Option-M` | `Ctrl-Alt-M` |
 | Open as presentation (optional Markdown presentation slides) | `Command-Option-P` | `Ctrl-Alt-P` |
-| Code completion (optional Code intelligence) | `Ctrl-Space` | `Ctrl-Space` |
+| Start/finish dictation in a Markdown note (optional Speech) | `Ctrl-Space` | `Ctrl-Space` |
+| Code completion in source files (optional Code intelligence) | `Ctrl-Space` | `Ctrl-Space` |
 | Go to definition (optional Code intelligence) | `F12` | `F12` |
 | Find references (optional Code intelligence) | `Command-Shift-F12` | `Ctrl-Shift-F12` |
 | Signature help (optional Code intelligence) | `Command-Shift-Space` | `Ctrl-Shift-Space` |
@@ -76,6 +77,16 @@ Escape exits. The visible playback buttons, positive interval field, and Loop
 checkbox remain available through Tab. Comments use native form controls,
 resolve/reopen actions, explicit reattachment, and confirmed deletion; Escape
 closes the dialog and returns focus to the note.
+
+Speech and Credential store open from named activity-rail buttons as non-modal
+sidebars. Tab and Shift-Tab can leave them. With Speech enabled and its local
+model installed, Control-Space starts dictation in a writable Rich or Source
+note; the next press stops and transcribes locally. Review and insert the
+transcript explicitly. Escape stops recording before other editor actions; in
+the idle sidebar it closes the panel. Credential row links, field-specific
+copy controls, entry forms, and deletion confirmation are keyboard-operable.
+Operating-system input-source shortcuts can intercept Control-Space before
+Denote receives it; the visible **Start dictation** control remains available.
 
 With the optional JSON and YAML viewer, Tab reaches the Structured/Raw group,
 Collapse all, Expand all, and the tree. Inside the tree, Up/Down move through

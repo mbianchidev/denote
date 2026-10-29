@@ -4,8 +4,9 @@ This note contains invented practice text. Opening it does not enable a plugin,
 download a model, or request microphone access.
 
 Enable **Speech, voice notes, and transcription** in **Settings → Plugins**.
-Open this note, place the caret in Source, and choose **Speech** from the command
-palette.
+Open this note and choose **Speech** in the activity rail, note toolbar, or
+command palette. Its sidebar works beside Rich and Source; placing the caret
+manually is not required.
 
 Read this sentence with an installed local voice:
 
@@ -18,9 +19,12 @@ file and relative Markdown link. **Cancel recording** and **Discard audio**
 remove unsaved audio.
 
 For dictation or imported audio, approve the separate local model/runtime
-download, choose a supported locale, and choose **Transcribe audio locally**.
+download and choose a supported locale. **Control-Space** starts dictation
+while this note is active; press it again to stop and transcribe. Imported audio
+uses **Transcribe audio locally**.
 Edit **Review transcript** before choosing **Insert transcript**. Nothing is
-inserted automatically.
+inserted automatically. The review says whether text will use the captured caret
+or selection, or be added safely to the end of the note.
 
 Disabling the plugin removes its controls and native engine code, not saved
 audio, links, or accepted transcripts. Public model weights have separate cleanup.

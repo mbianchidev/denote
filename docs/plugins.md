@@ -241,6 +241,13 @@ concurrent.
   never receives audio, transcripts, entries, passwords, keys, device handles,
   or clipboard values. Microphone, model download, reveal, copy, and export each
   require their own explicit host action.
+  Their existing registrations also produce host-owned activity-rail entries
+  and non-modal sidebars. This is not a worker `sidebar` registration and does
+  not broaden either isolated permission. Speech supports explicit Control-Space
+  dictation in the active editable Markdown note, retains review-before-insertion,
+  and appends safely when there is no exact current insertion range. Credential
+  rows expose native field-specific copy actions and reviewed HTTP(S) service
+  links without persisting service addresses or logging them.
 - The credential tool is a separate user-authored vault document model, not
   general plugin secure storage: all fields in `.denote/credentials.dncred`
   use independent authenticated encryption and a memory-hard master-password

@@ -303,6 +303,8 @@ import {
   editorZoomShortcut,
   isClosePaneShortcut,
   isCommandPaletteShortcut,
+  isDictationShortcut,
+  isDictationTarget,
   isNewFileShortcut,
   isNewTabShortcut,
   isReplaceShortcut,
@@ -998,6 +1000,7 @@ function App() {
     remainingUrls: string[];
     opened: number;
     failed: number;
+    sensitive?: boolean;
   } | null>(null);
   const [activeDocumentAnalysis, setActiveDocumentAnalysis] = useState<{
     vaultPath: string;
@@ -1756,12 +1759,43 @@ function App() {
     !pluginController.busyPluginIds.has(tool.pluginId) &&
     pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === tool.pluginId)),
   [pluginController.sensitiveTools, pluginController.busyPluginIds, pluginController.plugins]);
-  const credentialTool = sensitiveTools.find((tool) => tool.feature === "credential-store") ?? null;
-  const speechTool = sensitiveTools.find((tool) => tool.feature === "speech") ?? null;
-  const [credentialStoreOpen, setCredentialStoreOpen] = useState(false);
+  const activeSensitiveTool = sensitiveTools.find((tool) => tool.id === activePluginSidebar) ?? null;
+  const credentialTool = activeSensitiveTool?.feature === "credential-store" ? activeSensitiveTool :
+    sensitiveTools.find((tool) => tool.feature === "credential-store") ?? null;
+  const speechTool = activeSensitiveTool?.feature === "speech" ? activeSensitiveTool :
+    sensitiveTools.find((tool) => tool.feature === "speech") ?? null;
+  const [speechContainer, setSpeechContainer] = useState<HTMLElement | null>(null);
+  const speechOpeners = useRef(new Map<string, { vault: string; path: string; open: (dictation: boolean) => void }>());
+  const sensitiveSidebarScope = useRef<{ id: string; vault: string } | null>(null);
+  const showPluginSidebar = useCallback((id: string) => {
+    showSidebarView("files");
+    setActivePluginSidebar(id);
+  }, [showSidebarView]);
+  const openSpeech = useCallback((dictation = false) => {
+    if (!speechTool) return;
+    const entry = speechOpeners.current.get(paneStateRef.current.focusedPaneId);
+    const focused = paneStateRef.current.panes.find((pane) => pane.id === paneStateRef.current.focusedPaneId);
+    if (entry && entry.vault === workspaceVaultPathRef.current && entry.path === focused?.activePath &&
+        !workspaceLockedRef.current) entry.open(dictation);
+    else {
+      showPluginSidebar(speechTool.id);
+      if (dictation) showError("Open an editable Markdown note before starting dictation.");
+    }
+  }, [speechTool?.id, showPluginSidebar, showError]);
+  const clearCredentialLink = useCallback(() => {
+    setPendingExternalLink((pending) => pending?.sensitive ? null : pending);
+  }, []);
   useEffect(() => {
-    if (!credentialTool || !workspace || workspace.encryption.enabled && !workspace.encryption.unlocked) setCredentialStoreOpen(false);
-  }, [credentialTool, workspace?.vaultPath, workspace?.encryption.enabled, workspace?.encryption.unlocked]);
+    const previous = sensitiveSidebarScope.current;
+    const available = workspace && (!workspace.encryption.enabled || workspace.encryption.unlocked);
+    if (previous?.id === activePluginSidebar &&
+        (!activeSensitiveTool || !available || previous.vault !== workspace?.vaultPath)) {
+      showSidebarView("files");
+      clearCredentialLink();
+    }
+    sensitiveSidebarScope.current = activeSensitiveTool && available ? { id: activeSensitiveTool.id, vault: workspace.vaultPath } : null;
+  }, [activeSensitiveTool, activePluginSidebar, workspace?.vaultPath, workspace?.encryption.enabled, workspace?.encryption.unlocked,
+    showSidebarView, clearCredentialLink]);
   const commentOpeners = useRef(new Map<string, { vault: string; path: string; open: () => void }>());
   const readComments = useCallback(async (pluginId: string, vault: string) => {
     const generation = vaultGeneration.current;
@@ -8311,6 +8345,7 @@ function App() {
       urls: string[],
       policy: ExternalDomainPolicy,
       progress = { opened: 0, failed: 0 },
+      sensitive = false,
     ) => {
       let { opened, failed } = progress;
       for (let index = 0; index < urls.length; index += 1) {
@@ -8328,6 +8363,7 @@ function App() {
             remainingUrls: urls.slice(index + 1),
             opened,
             failed,
+            sensitive,
           });
           return;
         }
@@ -8336,7 +8372,8 @@ function App() {
           opened += 1;
         } catch (caught) {
           failed += 1;
-          console.error(`Unable to open ${url}:`, caught);
+          if (sensitive) console.error("Unable to open the credential service link.");
+          else console.error(`Unable to open ${url}:`, caught);
         }
       }
       if (failed > 0) {
@@ -8361,7 +8398,9 @@ function App() {
         return;
       }
       let policy = externalDomainPolicy;
-      if (pending.kind === "domain") {
+      if (pending.sensitive) {
+        policy = allowExternalDomain(externalDomainPolicy, pending.subject);
+      } else if (pending.kind === "domain") {
         const nextPolicy = allowAll
           ? { ...externalDomainPolicy, allowAll: true }
           : allowExternalDomain(externalDomainPolicy, pending.subject);
@@ -8377,6 +8416,7 @@ function App() {
           [pending.url, ...pending.remainingUrls],
           policy,
           { opened: pending.opened, failed: pending.failed },
+          pending.sensitive,
         );
         return;
       }
@@ -8688,7 +8728,6 @@ function App() {
   }, [activePath, headingNavigation, revealHeading, showLinkError]);
 
   const modalOpen =
-    credentialStoreOpen ||
     emojiPickerOpen ||
     replaceOpen ||
     encryptionOpen ||
@@ -8772,6 +8811,18 @@ function App() {
         workspaceLockedRef.current ||
         modalOpen
       ) {
+        return;
+      }
+      if (event.key === "Escape" && (document.querySelector("[data-speech-capture]") ||
+          event.target instanceof Element && event.target.closest(".sensitive-tool-panel"))) return;
+      if (isDictationShortcut(event) && speechTool && !event.repeat && !event.isComposing && !event.getModifierState("AltGraph") &&
+          activeFileTab?.encoding === "utf8" && /\.(md|markdown)$/i.test(activeFileTab.path) &&
+          !activeFileTab.transient && !activeFileTab.readOnly && isDictationTarget(event.target) && event.target instanceof Element &&
+          !event.target.closest(".presentation-editor, .presentation-stage-shell") &&
+          !event.defaultPrevented) {
+        event.preventDefault();
+        event.stopPropagation();
+        openSpeech(true);
         return;
       }
       if (isEmojiPickerShortcut(event, navigator.platform) && emojiPickers.length > 0) {
@@ -8889,6 +8940,8 @@ function App() {
     emojiPickers,
     focusCurrentDocumentSearch,
     modalOpen,
+    speechTool,
+    openSpeech,
     saveTab,
     showError,
     showOutline,
@@ -9727,20 +9780,20 @@ function App() {
     ...(credentialTool ? [{
       id: "host.sensitive.credential-store", title: "Credential store",
       description: "Open the independently encrypted credential store.", category: "Vault",
-      disabled: !workspaceReady, run: () => setCredentialStoreOpen(true),
+      disabled: !workspaceReady, run: () => showPluginSidebar(credentialTool.id),
     }] : []),
     ...(speechTool ? [{
       id: "host.sensitive.speech", title: "Speech",
       description: "Read this note, record audio, or review a local transcript.", category: "Editor",
       disabled: !workspaceReady || !activeFileTab || activeFileTab.encoding !== "utf8" ||
         !/\.(md|markdown)$/i.test(activeFileTab.path) || Boolean(activeFileTab.transient),
-      run: () => {
-        const pane = [...document.querySelectorAll<HTMLElement>("[data-pane-id]")].find((pane) =>
-          pane.dataset.paneId === paneStateRef.current.focusedPaneId);
-        const button = pane?.querySelector<HTMLButtonElement>('[data-authoring-action="speech"]');
-        if (!button) throw new Error("Return to an available Markdown note before opening Speech.");
-        button.click();
-      },
+      run: () => openSpeech(),
+    }, {
+      id: "host.sensitive.dictation", title: "Start dictation",
+      description: "Start local dictation in this note.", category: "Editor", shortcut: "Ctrl+Space",
+      disabled: !workspaceReady || !activeFileTab || activeFileTab.encoding !== "utf8" ||
+        !/\.(md|markdown)$/i.test(activeFileTab.path) || Boolean(activeFileTab.transient) || Boolean(activeFileTab.readOnly),
+      run: () => openSpeech(true),
     }] : []),
     ...(["text-styling", "note-comments", "presentation"] as const).filter((feature) =>
       authoringProviders.some((provider) => provider.feature === feature)).map((feature) => ({
@@ -10526,6 +10579,9 @@ function App() {
         nativeFullscreen={nativeFullscreenHost.enter}
         speech={speechTool ? {
           pluginId: speechTool.pluginId, workspaceScope: workspace.vaultPath,
+          container: speechContainer, open: activeSensitiveTool?.id === speechTool.id, suspended: modalOpen,
+          onOpen: () => showPluginSidebar(speechTool.id),
+          onClose: () => showSidebarView("files"),
           saveVoiceNote: async (bytes, from, to) => {
             const generation = vaultGeneration.current;
             const original = paneTab.content;
@@ -10561,6 +10617,11 @@ function App() {
             finally { attachmentUploads.current.delete(tracked); }
           },
         } : undefined}
+        registerSpeechAction={(open) => {
+          const entry = { vault: workspace.vaultPath, path: paneTab.path, open };
+          speechOpeners.current.set(pane.id, entry);
+          return () => { if (speechOpeners.current.get(pane.id) === entry) speechOpeners.current.delete(pane.id); };
+        }}
         registerCommentsAction={(open) => {
           const entry = { vault: workspace.vaultPath, path: paneTab.path, open };
           commentOpeners.current.set(pane.id, entry);
@@ -10652,7 +10713,7 @@ function App() {
         activeCalendar={activeCalendar}
         onCalendarChange={showCalendar}
         activeView={sidebarView}
-        activePluginView={activePluginSidebarView?.id ?? null}
+        activePluginView={activeSensitiveTool?.id ?? activePluginSidebarView?.id ?? null}
         activeSourceControlProvider={activeSourceControlProvider}
         activeNoteGraph={activeNoteGraph}
         activeTaskList={activeTaskList}
@@ -10662,6 +10723,7 @@ function App() {
           providerId: timeViews.find((provider) => provider.pluginId === activeTimeTracking.pluginId)?.id ?? activeTimeTracking.providerId,
         } : null}
         pluginViews={pluginController.sidebarViews}
+        sensitiveTools={sensitiveTools}
         sourceControlProviders={pluginController.sourceControlProviders}
         noteGraphs={noteGraphs}
         taskLists={taskLists}
@@ -10678,13 +10740,8 @@ function App() {
           showSidebarView(view);
         }}
         onPluginViewChange={(viewId) => {
-          setActiveSourceControlProvider(null);
-          setActiveNoteGraph(null);
-          setActiveCalendar(null);
-          setActiveTaskList(null);
-          setActiveReminder(null);
-          setActiveTimeTracking(null);
-          setActivePluginSidebar(viewId);
+          if (viewId === speechTool?.id) openSpeech();
+          else showPluginSidebar(viewId);
         }}
         onSourceControlProviderChange={(pluginId, providerId) => {
           setActivePluginSidebar(null);
@@ -10737,7 +10794,19 @@ function App() {
             </button>
           </div>
         </header>
-        {activeClockContribution ? (
+        {activeSensitiveTool?.feature === "credential-store" && !workspaceLocked ? (
+          <Suspense fallback={<p role="status">Opening credential store…</p>}>
+            <CredentialStorePanel key={`${workspace.vaultPath}:${activeSensitiveTool.pluginId}`} pluginId={activeSensitiveTool.pluginId}
+              workspaceScope={workspace.vaultPath} onClose={() => showSidebarView("files")}
+              onLock={clearCredentialLink}
+              onOpenService={(url) => openWebLinksWithPolicy([url], externalDomainPolicy, undefined, true)} />
+          </Suspense>
+        ) : activeSensitiveTool?.feature === "speech" && !workspaceLocked ? (
+          <div className="sidebar-view" ref={setSpeechContainer}>
+            {!activeFileTab || activeFileTab.encoding !== "utf8" || !/\.(md|markdown)$/i.test(activeFileTab.path) || activeFileTab.transient ?
+              <p className="authoring-muted">Open a Markdown note to use Speech.</p> : null}
+          </div>
+        ) : activeClockContribution ? (
           <ClockPanel
             key={`${activeClockContribution.pluginId}:${activeClockContribution.id}:${workspace.pluginScopeId}`}
             provider={activeClockContribution} controller={clockController}
@@ -11737,6 +11806,7 @@ function App() {
         kind={pendingExternalLink?.kind ?? "domain"}
         subject={pendingExternalLink?.subject ?? ""}
         url={pendingExternalLink?.url ?? ""}
+        oneTime={pendingExternalLink?.sensitive}
         onAllow={() => void allowPendingExternalLink(false)}
         onAllowAll={() => void allowPendingExternalLink(true)}
         onCancel={() => setPendingExternalLink(null)}
@@ -11744,10 +11814,6 @@ function App() {
       {vaultSwitcherDialog}
       {commandPalette}
       <EmojiHostSurface host={emojiHost} />
-      {credentialStoreOpen && credentialTool && !workspaceLocked ? <Suspense fallback={<p role="status">Opening credential store…</p>}>
-        <CredentialStorePanel key={`${workspace.vaultPath}:${credentialTool.pluginId}`} pluginId={credentialTool.pluginId}
-          workspaceScope={workspace.vaultPath} onClose={() => setCredentialStoreOpen(false)} />
-      </Suspense> : null}
       {aboutDialog}
       <EncryptionDialog
         open={encryptionOpen}

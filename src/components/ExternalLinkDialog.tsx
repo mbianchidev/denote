@@ -9,6 +9,7 @@ interface ExternalLinkDialogProps {
   onAllow: () => void;
   onAllowAll: () => void;
   onCancel: () => void;
+  oneTime?: boolean;
 }
 
 export function ExternalLinkDialog({
@@ -19,6 +20,7 @@ export function ExternalLinkDialog({
   onAllow,
   onAllowAll,
   onCancel,
+  oneTime = false,
 }: ExternalLinkDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const firstActionRef = useRef<HTMLButtonElement>(null);
@@ -58,7 +60,7 @@ export function ExternalLinkDialog({
             External link
           </span>
           <h2 id="external-link-title">
-            {kind === "domain" ? `Allow ${subject}?` : `Open ${subject} link?`}
+            {oneTime ? "Open service link?" : kind === "domain" ? `Allow ${subject}?` : `Open ${subject} link?`}
           </h2>
         </div>
         <button
@@ -73,6 +75,7 @@ export function ExternalLinkDialog({
       <div className="external-link-dialog__body">
         <p>This link opens outside Denote:</p>
         <code>{url}</code>
+        {oneTime ? <p>This address is not saved to allowed domains. Your browser may keep it in history.</p> : null}
       </div>
       <footer className="external-link-dialog__actions">
         <button type="button" className="secondary-button" onClick={onCancel}>
@@ -81,12 +84,12 @@ export function ExternalLinkDialog({
         <button
           ref={firstActionRef}
           type="button"
-          className="secondary-button"
+          className={oneTime ? "primary-button" : "secondary-button"}
           onClick={onAllow}
         >
-          {kind === "domain" ? `Allow ${subject}` : `Open ${subject} link`}
+          {oneTime ? "Open link" : kind === "domain" ? `Allow ${subject}` : `Open ${subject} link`}
         </button>
-        {kind === "domain" ? (
+        {kind === "domain" && !oneTime ? (
           <button type="button" className="primary-button" onClick={onAllowAll}>
             Allow all external domains
           </button>

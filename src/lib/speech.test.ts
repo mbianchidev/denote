@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { audioBytes, encodeSpeechWav, localAudioLink, speechBase64, speechChunks, speechText, timestampedTranscript } from "./speech";
+import { audioBytes, encodeSpeechWav, localAudioLink, speechBase64, speechChunks, speechInsertionTarget, speechText, timestampedTranscript } from "./speech";
 
 describe("private speech data", () => {
+  it("uses an exact current selection and safely appends without rewriting stale source", () => {
+    const source = "---\r\ncustom: keep\r\n---\r\n\r\nA **synthetic** note.  ";
+    expect(speechInsertionTarget(source, { source, from: 6, to: 12, restore: () => {} }))
+      .toEqual({ from: 6, to: 12, append: false, prefix: "" });
+    for (const selection of [null, { source: "An older invented note.", from: 0, to: 5, restore: () => {} }]) {
+      expect(speechInsertionTarget(source, selection)).toEqual({ from: source.length, to: source.length, append: true, prefix: "\r\n\r\n" });
+    }
+    expect(speechInsertionTarget("", null).prefix).toBe("");
+    expect(speechInsertionTarget("Synthetic\r\n", null).prefix).toBe("\r\n");
+    expect(speechInsertionTarget("Synthetic\n\n", null).prefix).toBe("");
+    expect(() => speechInsertionTarget(source, { source, from: -1, to: 2, restore: () => {} })).toThrow(/invalid/);
+  });
+
   it("encodes exact bounded mono PCM16 without files or source rewriting", () => {
     const wav = encodeSpeechWav(new Float32Array([0, -1, 1, 0.5]));
     expect(new TextDecoder().decode(wav.subarray(0, 4))).toBe("RIFF");

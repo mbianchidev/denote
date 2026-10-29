@@ -25,6 +25,9 @@ interface AuthoringFixtureState {
   audio: Record<string, string>;
   credentialActions: string[];
   speechActions: string[];
+  externalLinks: string[];
+  microphoneRequests: number;
+  activeMicrophoneTracks: number;
 }
 declare global { interface Window { __DENOTE_AUTHORING__: AuthoringFixtureState } }
 
@@ -41,9 +44,20 @@ const documents = {
 const state: AuthoringFixtureState = {
   documents, comments: { contentHash: "0".repeat(64), document: { schemaVersion: 1, owner: "denote.note-comments", notes: {} } },
   saves: [], unexpectedCommands: [], terminatedWorkers: 0, nativeFullscreen: false, commentReads: 0,
-  audio: {}, credentialActions: [], speechActions: [],
+  audio: {}, credentialActions: [], speechActions: [], externalLinks: [], microphoneRequests: 0, activeMicrophoneTracks: 0,
 };
 window.__DENOTE_AUTHORING__ = state;
+const microphoneTracks: MediaStreamTrack[] = [];
+Object.defineProperty(state, "activeMicrophoneTracks", { enumerable: true, get: () => microphoneTracks.filter((track) => track.readyState === "live").length });
+if (navigator.mediaDevices?.getUserMedia) {
+  const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    state.microphoneRequests++;
+    const stream = await getUserMedia(constraints);
+    microphoneTracks.push(...stream.getTracks());
+    return stream;
+  };
+}
 const NativeWorker = window.Worker;
 window.Worker = class extends NativeWorker {
   terminate() { state.terminatedWorkers++; super.terminate(); }
@@ -91,6 +105,7 @@ mockWindows("main");
 mockIPC((command, payload) => {
   switch (command) {
     case "stop_sensitive_tools": return null;
+    case "open_external_uri": state.externalLinks.push(argument(payload, "uri")); return null;
     case "speech_engine_status": return {
       installed: true, modelCached: true, supported: true, model: "Synthetic local model", modelBytes: 742090464, runtimeBytes: 100,
       sourceUrl: "https://synthetic.invalid", licenseUrl: "https://synthetic.invalid/license", locales: ["auto", "en-US"],
@@ -125,13 +140,33 @@ mockIPC((command, payload) => {
       const request = field(payload, "request");
       const action = argument(request, "action");
       state.credentialActions.push(action);
-      const snapshot = { kind: "snapshot", session: "synthetic-session", hash: "a".repeat(64), entries: structuredClone(credentialEntries) };
+      const snapshot = () => ({ kind: "snapshot", session: "synthetic-session", hash: "a".repeat(64), entries: structuredClone(credentialEntries) });
       if (action === "status") return { kind: "status", exists: true };
       if (action === "unlock") {
         if (argument(request, "password") !== "synthetic master password") throw new Error("Synthetic authentication failed.");
-        return snapshot;
+        return snapshot();
       }
-      if (action === "list") return snapshot;
+      if (action === "list") return snapshot();
+      if (action === "upsert") {
+        const input = field(request, "entry");
+        const id = field(input, "id");
+        const entry = {
+          id: typeof id === "string" ? id : crypto.randomUUID(),
+          service: argument(input, "service"), username: argument(input, "username"),
+          url: argument(input, "url"), notes: argument(input, "notes"),
+        };
+        const previous = credentialEntries.findIndex((candidate) => candidate.id === entry.id);
+        if (previous < 0) credentialEntries.push(entry);
+        else credentialEntries[previous] = entry;
+        return snapshot();
+      }
+      if (action === "delete") {
+        const index = credentialEntries.findIndex((entry) => entry.id === argument(request, "id"));
+        if (index < 0) throw new Error("Missing synthetic credential entry.");
+        credentialEntries.splice(index, 1);
+        return snapshot();
+      }
+      if (action === "copy") state.credentialActions.push(`copy-${argument(request, "field")}`);
       if (action === "reveal") return { kind: "revealed", value: "invented-secret-canary" };
       if (action === "export" && (argument(request, "password") !== "synthetic master password" || field(request, "confirmed") !== true)) {
         throw new Error("Synthetic export requires reauthentication and confirmation.");

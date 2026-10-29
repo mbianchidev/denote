@@ -1,4 +1,11 @@
-.sensitive-tool { display: grid; gap: 12px; }
+.sensitive-tool-panel { min-width: 0; width: 100%; overflow: hidden; }
+.sensitive-tool-panel > .sidebar-view__title { flex: 0 0 auto; }
+.sensitive-tool-panel__body { min-width: 0; min-height: 0; overflow: auto; padding: 12px; font-size: 12px; }
+.sensitive-tool-panel__body p { margin: 0; }
+.sensitive-tool-panel__body .authoring-actions { align-items: end; }
+.sensitive-tool-panel__body label { min-width: 0; }
+.sensitive-tool-panel__body input:not([type="checkbox"]), .sensitive-tool-panel__body textarea { width: 100%; }
+.sensitive-tool { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 12px; }
 .sensitive-tool form { display: grid; gap: 10px; }
 .sensitive-tool label:not(.sensitive-tool__check) { display: grid; gap: 4px; }
 .sensitive-tool input, .sensitive-tool select, .sensitive-tool textarea {
@@ -8,8 +15,14 @@
 .sensitive-tool__check { display: flex; align-items: center; gap: 7px; }
 .sensitive-tool__check input { width: 15px; height: 15px; margin: 0; padding: 0; flex: 0 0 auto; }
 .sensitive-tool__table { overflow: auto; }
-.sensitive-tool table { width: 100%; border-collapse: collapse; text-align: left; }
+.sensitive-tool table { width: 100%; min-width: 440px; border-collapse: collapse; text-align: left; }
 .sensitive-tool th, .sensitive-tool td { padding: 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.sensitive-tool th { min-width: 90px; }
+.sensitive-tool th a { display: block; margin-top: 5px; color: var(--accent-strong); font-weight: 400; }
+.credential-cell { display: flex; align-items: center; gap: 6px; }
+.credential-cell > span { min-width: 0; flex: 1; }
+.credential-cell .icon-button { flex: 0 0 auto; }
+.sensitive-tool .credential-secret { display: block; max-width: 180px; overflow: auto; white-space: pre; margin-bottom: 6px; }
 .sensitive-tool output { white-space: pre-wrap; user-select: text; }
 .sensitive-tool :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .speech-recording { border: 2px solid var(--danger); padding: 10px; border-radius: 5px; }
@@ -23,4 +36,5 @@
   .sensitive-tool input, .sensitive-tool select, .sensitive-tool textarea { background: Canvas; color: CanvasText; border-color: CanvasText; }
   .sensitive-tool :focus-visible { outline-color: Highlight; }
   .speech-recording { border-color: CanvasText; }
+  .sensitive-tool th a { color: LinkText; }
 }
