@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "id": "denote.mermaid",
   "name": "Mermaid diagrams",
-  "version": "0.2.10",
+  "version": "0.3.0",
   "description": "Render local Mermaid fenced blocks in Markdown rich view with strict source and SVG safety boundaries.",
   "publisher": {
     "name": "Denote",
     "url": "https://github.com/mbianchidev/denote"
   },
-  "license": "MIT AND (MPL-2.0 OR Apache-2.0)",
+  "license": "MIT AND ISC",
   "repository": "https://github.com/mbianchidev/denote",
   "icon": "icon.svg",
   "category": "diagrams-visualization",
@@ -27,9 +27,7 @@
   },
   "legal": [
     "legal/THIRD_PARTY_NOTICES.md",
-    "legal/mermaid-MIT.txt",
-    "legal/dompurify-APACHE-2.0.txt",
-    "legal/katex-MIT.txt"
+    "legal/pele-LICENSE.txt"
   ],
   "documentation": "guide.md"
 }

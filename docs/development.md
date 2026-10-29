@@ -415,8 +415,8 @@ bundle on the application UI thread.
 For Mermaid changes, run:
 
 ```bash
-npm audit --audit-level=high
-npm ls mermaid dompurify
+npm audit --audit-level=low --workspaces --include-workspace-root
+npm ls pele dompurify
 npx vitest run \
   packages/plugin-sdk/src/diagramRenderer.test.ts \
   plugins/mermaid/tests/compatibility.test.ts \
@@ -425,21 +425,60 @@ npx vitest run \
   src/plugins/runtimeMessages.test.ts \
   src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx \
-  src/components/MermaidMarkdownEditor.test.tsx
+  src/components/MermaidMarkdownEditor.test.tsx \
+  src/lib/welcomeSamples.test.ts
+npx tsc --noEmit -p tsconfig.benchmarks.json
+npm run build
+npm exec --no -- playwright test benchmarks/mermaid.perf.ts
 cargo test --manifest-path src-tauri/Cargo.toml diagram_renderer
 ```
 
-The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
-dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
-until upstream removes those pins. After dependency updates, verify both
-`npm audit --audit-level=high --workspaces --include-workspace-root` and
-`npm ls lodash-es`. The host sanitizer and Mermaid 0.2.9 use DOMPurify
+Mermaid plugin 0.3.0 pins [Pele 1.12.0](https://github.com/obsidianmd/pele/releases/tag/1.12.0)
+for Denote v0.12.1 without pre-bumping the application from the latest published
+0.11.0. Pele's [compatibility contract](https://pele.run/compatibility) targets
+Mermaid 12.1 syntax with its own layout, not complete Mermaid.js 12.2 parity.
+All 15 original real-parser fixtures passed against Mermaid 12.2.0 and Pele
+before replacement. The shared synthetic inventory now exercises all 30
+existing detector families; formerly mocked-only invalid specialty examples
+were corrected and checked against both parsers before Mermaid.js was removed.
+The existing allowlist still rejects additional upstream/internal families.
+Math remains literal TeX in both strict-renderer baselines; no separate math
+resolver is bundled.
+
+`benchmarks/mermaid.perf.ts` runs the real downloaded renderer through
+`DiagramRendererHost` and its opaque, no-network iframe, independent sanitizer,
+and cancellation path in Light, Dark, and forced colors. It decodes every
+sanitized result as a standalone SVG image, checks local marker/gradient
+references and resolved colors, and enforces 4.5:1 chart percentage contrast.
+Theme flattening includes gradient stops and rounded corners; a solid
+theme-colored backdrop preserves standalone export contrast. Pixel checks
+verify that backdrop after decoding the SVG without application CSS. Quoted local
+paint references become `url(#id)` without broadening the host sanitizer.
+
+The local Vite renderer build measured 299,799 gzip bytes versus 1,611,804 for
+the previous Mermaid 12.2 package, using Node's default `gzipSync` on each built
+`dist/renderer.js`. These are Denote bundle measurements, not upstream's
+advertised 230 kB or a Denote render-speed benchmark. Re-measure after changing
+the renderer or toolchain rather than treating those figures as a size budget.
+Pele has no runtime dependencies. The current plugin graph removes Mermaid.js,
+its plugin-local DOMPurify and KaTeX, and the now-unused KaTeX/lodash-es
+overrides. Earlier release ledgers, source pins, archives, and their original
+dependency remediations remain immutable.
+
+Until Denote v0.12.1 publishes this plugin asset, use the separate development
+DMG described in **Preview an unpublished plugin on macOS** below.
+`npm run dev:plugin -- denote.mermaid --once` stages
+`.plugin-dev/denote.mermaid.tgz`; select it through **Settings → Plugins → Load
+local plugin archive** in Denote Development. The production downloader never
+falls back to these local bytes, and neither DMG embeds the executable plugin.
+
+The independent host sanitizer retains DOMPurify
 [3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) to fix
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
-The host sanitizer and Mermaid 0.2.9 use this patch. Earlier published plugin
-archives retain their immutable bytes and source provenance.
+Mermaid 0.2.9 also used this patch. Earlier published plugin archives retain
+their immutable bytes and source provenance.
 The build/test toolchain pins Vite 8.3.5 and Rolldown 1.2.15 together, with
 patched Undici 8.12.3. This compiler refresh uses new patch versions for all
 11 plugin packages, including Git 0.10.1 and Code intelligence 0.1.2. Earlier
@@ -449,11 +488,11 @@ never repin an existing version to accommodate different compiler output.
 Include the workspace root in npm audits so development dependencies such as
 Vite and jsdom's Undici are covered as well as plugin workspaces.
 
-The root `katex` override
-pins [0.18.10](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.10) because
-Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
-[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
-at this compatible patch until strict-mode changes are reviewed. KaTeX 0.18.11
+Before the Pele replacement, the root `katex` override pinned
+[0.18.10](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.10) because Mermaid 12
+otherwise required KaTeX 0.16, which is affected by
+[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep
+that compatible patch in historical source pins. KaTeX 0.18.11
 was deprecated after accidentally shipping the
 [0.19 breaking changes](https://github.com/KaTeX/KaTeX/releases/tag/v0.19.0);
 it is not a safe patch-only upgrade. Earlier published plugin archives retain
@@ -1120,16 +1159,18 @@ pin these four packages and Time tracking 0.2.0 to that full source SHA with
 Unchanged packages retain their existing source identities and bytes.
 
 Keep the published v0.9.0 DOMPurify remediation from issue #130: canonical
-DOMPurify 3.4.17, KaTeX 0.18.10, lodash-es 4.18.1, source-map-js 1.2.2, and
-Undici 8.12.3 remain security overrides. Deprecated KaTeX 0.18.11 accidentally
+DOMPurify 3.4.17, source-map-js 1.2.2, and Undici 8.12.3 remain security
+overrides. KaTeX 0.18.10 and lodash-es 4.18.1 remain fixed in historical Mermaid
+source pins, but leave the current graph with the Pele replacement.
+Deprecated KaTeX 0.18.11 accidentally
 included breaking 0.19 changes and is not a routine patch upgrade. Retain Vite
 8.3.5, archive-compatible Rolldown 1.2.15, and pako 3.0.2. Do not rewrite old
 ledger entries or repin old versions to fix already-published remediation.
 The host-only compatible updates are autocomplete 6.20.4, @pierre/diffs 1.6.1,
 and jsdom 30.1.3; no Tauri-family upgrade is implied.
 
-After pinning, inspect `npm ls mermaid mdast-util-from-markdown dompurify katex
-lodash-es rolldown`, run full and workspace-root `npm audit --audit-level=low`,
+After pinning, inspect `npm ls pele mdast-util-from-markdown dompurify
+rolldown`, run full and workspace-root `npm audit --audit-level=low`,
 the affected plugin tests and full suite, `check:plugins`, `package:plugins`,
 `check:plugin-downloads -- --source`, `check:plugin-archives -- --base
 <full-origin-main-SHA>`, and `npm run build`. Check the real Mermaid entrypoint
@@ -1393,18 +1434,19 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-26**.
+Last vendored-library check: **2026-10-29**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the slide-separator, playback-control, and grey comment-count follow-ups using the
+the Pele renderer trial using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream
-fixes and backport requests, and each linked RustSec advisory were checked
-again. The API returned HTTP 403, so published versions were verified through
-the official registry index instead; compatible and latest stable versions
-below are unchanged. The three plugins also publish 3.0.0-alpha.3,
-which requires Tauri 3 and still uses zbus 5, so it is not a compatible
-replacement. No compatible
+fixes and backport requests, crate-specific RustSec inventories, and each linked
+dependency advisory were checked again. The API returned HTTP 403, so published
+versions and their dependency requirements were verified through the official
+registry index instead. Notification 2.8.0 and single-instance 2.5.5 are newly
+published, but still require Tauri 2.12 and the unmaintained zbus 5 graph.
+The Tauri 3 plugin alphas are also incompatible with the pinned runtime.
+No compatible
 published replacement removes a local backport. The open
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
@@ -1450,13 +1492,13 @@ remain applicable to the original dependency graphs. Neither withdrawal nor
 a newer incompatible release removes the need for these local replacements.
 
 Published
-[notification 2.7.0](https://crates.io/crates/tauri-plugin-notification/2.7.0),
+[notification 2.8.0](https://crates.io/crates/tauri-plugin-notification/2.8.0),
 [opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
-[single-instance 2.5.4](https://crates.io/crates/tauri-plugin-single-instance/2.5.4)
+[single-instance 2.5.5](https://crates.io/crates/tauri-plugin-single-instance/2.5.5)
 require Tauri 2.12 and still use zbus 5. The
-[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.7.0),
+[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.0),
 [opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
-and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.4)
+and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.5)
 do not provide compatible releases removing the D-Bus backports. The
 [upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
 is open; no compatible published plugin removes the local adapters.

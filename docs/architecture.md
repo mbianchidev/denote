@@ -1652,26 +1652,36 @@ diagram keeps a separate five-second watchdog; timeout or cancellation destroys
 the sandbox before another request can use it. Tab close destroys its scope's
 sandbox immediately, including while initialization is still pending.
 
-`denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
-Its larger renderer requires Denote 0.5.2 or newer.
-Mermaid 0.2.9 and the independent host sanitizer pin DOMPurify 3.4.17; the root
-override keeps Mermaid's dependency graph on the same patch. Older plugin
-archives retain their immutable bytes and source provenance.
-A root override also pins Mermaid's math dependency to compatible KaTeX 0.18.10.
-Chevrotain's transitive `lodash-es` is overridden to patched 4.18.1. The
-renderer fixes Mermaid to strict security, disables
-start-on-load, HTML labels, callback binding, and error diagrams, expands the
-secure configuration list, fixes themes and deterministic IDs, and never calls
-returned bind functions. Preflight accepts YAML frontmatter only when it contains a bounded scalar
+`denote.mermaid` 0.3.0 bundles exactly Pele 1.12.0 in the downloaded renderer
+package and retains its Denote 0.5.2 minimum. Pele has no runtime dependencies;
+Mermaid.js, its parsers/layout engines, plugin-local DOMPurify, and KaTeX leave
+the current plugin graph. The independent host sanitizer remains on DOMPurify
+3.4.17. Older archives retain their immutable bytes, licenses, and source
+provenance.
+
+Pele renders synchronously inside the same opaque iframe and existing
+initialization, queue, cancellation, and five-second watchdog boundaries.
+Options explicitly disable links and images, omit custom icon/math resolvers,
+preserve source direction with `autoDirection: false`, and set the existing
+source, edge, and SVG limits. IDs use the existing deterministic source/theme
+seed. Math stays literal TeX, matching the prior strict renderer; no foreign
+objects or separate typesetter are introduced.
+Preflight accepts YAML frontmatter only when it contains a bounded scalar
 `title` and optional Gantt `displayMode: compact`; nested configuration,
 unknown keys, tags, anchors, and aliases are rejected. Init directives, links,
 callbacks, HTML labels, images/icons/custom shapes, external or scriptable
 protocols, and custom style directives are rejected. The existing detector-family
 allowlist is retained; new upstream diagram families are not enabled
 automatically, and internal info/error diagrams remain unsupported.
-Flowchart, class, state, ER, and requirement diagrams explicitly retain Dagre
-instead of Mermaid 12's new ELK default. Specialty diagram layouts keep their
-own defaults, and Denote retains its base palette and classic appearance.
+Pele targets Mermaid 12.1 syntax rather than full Mermaid.js 12.2 compatibility.
+It uses its own layout, so positions, spacing, and edge paths can differ.
+Denote's base palette is supplied as private sandbox-local CSS variables.
+Before removing styles, the renderer snapshots computed presentation attributes,
+including gradient-stop colors and rounded corners, and normalizes quoted local
+paint references to `url(#id)`. A theme-colored background rectangle keeps
+dark-theme labels readable when exported onto a light page. Exported SVG therefore needs
+no application CSS or unresolved variables. Chart palettes keep percentage-label contrast in both
+themes; high contrast uses system colors.
 
 The sandbox returns only a bounded result union. Errors contain a fixed code,
 bounded message, and optional positive line/column. Success contains SVG,

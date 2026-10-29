@@ -971,9 +971,14 @@ filter to isolate the sample chain from the rest of the Welcome guide.
 
 Enable **Mermaid diagrams** under **Diagrams and visualization** to render
 fenced `mermaid` blocks in Markdown Rich view. The plugin is disabled by
-default. Its executable package, including Mermaid 12.0.0, is downloaded only
+default. Its executable package, including Pele 1.12.0, is downloaded only
 after you approve **Diagram renderer**. This version requires Denote 0.5.2 or
-newer.
+newer. Existing `mermaid` fences stay unchanged.
+
+Pele targets Mermaid 12.1 syntax and uses a different layout from Mermaid.js,
+so spacing, positions, and edge paths can change. Explicit diagram directions
+are preserved. Math stays literal TeX, as in Denote's previous strict renderer;
+a separate math typesetter is not included.
 
 Denote owns the block controls and display. **Show diagram source** opens the
 ordinary editable fenced source without changing it. **Copy diagram SVG**
@@ -997,9 +1002,9 @@ path.
 
 Rendering is local and offline. The plugin rejects unsafe Mermaid frontmatter and initialization directives,
 HTML labels, links, callbacks, custom style directives, images, icons, external
-resources, and scriptable or unsafe URL schemes. Mermaid runs with strict
-security, fixed host configuration, HTML
-labels off, deterministic IDs, no callback binding, and a fixed local font
+resources, and scriptable or unsafe URL schemes. Pele runs with fixed host
+options, links and images explicitly disabled, deterministic IDs, no custom icon
+or math resolver, and a fixed local font
 family inside an opaque sandbox whose CSP denies network, image, font, object,
 form, and parent-origin access. Denote then sanitizes the returned SVG with a
 static allowlist and displays it in a second scriptless sandbox. No plugin HTML
@@ -1011,10 +1016,12 @@ renderer module has a 30-second initialization bound per open editor. One
 diagram renders at a time, at most 32 wait, each render has a five-second watchdog,
 successful derived content is capped at 32 entries or 16 MiB, and failed
 renders are never retried or cached. A parse error stays beside only its block
-and includes a line and column when Mermaid provides them.
+and includes a line and column when Pele provides them.
 
 Light, Dark, increased-contrast, and forced-colors changes rerender active
-diagrams. Motion is disabled for reduced-motion users. Closing the tab,
+diagrams. Theme colors are resolved before sanitization, so copied and exported
+SVG keeps its colors and a matching solid background without Denote's CSS.
+Motion is disabled for reduced-motion users. Closing the tab,
 switching vaults, locking an encrypted vault, disabling, updating, removing, or
 crashing the plugin, and application teardown cancel stale work, destroy
 sandboxes, clear derived SVG, unregister the contribution, and restore ordinary

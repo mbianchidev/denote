@@ -2,8 +2,10 @@
 
 This plugin includes:
 
-- Mermaid 12.2.0, licensed under the MIT License.
-- DOMPurify 3.4.17, used under the Apache License 2.0 option.
-- KaTeX 0.18.10, Mermaid's math renderer, licensed under the MIT License.
+- Pele 1.12.0, licensed under the MIT License, with no runtime dependencies.
+- Pele's upstream license also includes the ISC notice for its optional Lucide
+  zoom-reset icon. Denote uses only the synchronous renderer, not its mount or
+  zoom controls.
 
-The corresponding license texts are distributed in this folder.
+The complete upstream license is distributed as `pele-LICENSE.txt`.
+DOMPurify remains in Denote's independent host sanitizer, not this package.

@@ -1,4 +1,4 @@
-import mermaid from "mermaid";
+import { PeleError, render } from "pele";
 import type {
   PluginDiagramRenderError,
   PluginDiagramRendererModule,
@@ -10,6 +10,7 @@ import {
   MAX_PLUGIN_DIAGRAM_LINE_BYTES,
   MAX_PLUGIN_DIAGRAM_SOURCE_BYTES,
   MAX_PLUGIN_DIAGRAM_SOURCE_LINES,
+  MAX_PLUGIN_DIAGRAM_SVG_BYTES,
 } from "@denote/plugin-sdk";
 
 export const MERMAID_RENDERER_LIMITS = {
@@ -64,61 +65,6 @@ const UNSAFE_SOURCE_PATTERNS: Array<[RegExp, string]> = [
   [/\b(?:img|image|icon|href)\s*:/i, "Images, icons, and links are unavailable."],
 ];
 
-const SECURE_CONFIGURATION_KEYS = [
-  "secure",
-  "securityLevel",
-  "startOnLoad",
-  "maxTextSize",
-  "maxEdges",
-  "suppressErrorRendering",
-  "htmlLabels",
-  "dompurifyConfig",
-  "theme",
-  "themeCSS",
-  "themeVariables",
-  "fontFamily",
-  "fontSize",
-  "look",
-  "layout",
-  "elk",
-  "handDrawnSeed",
-  "deterministicIds",
-  "deterministicIDSeed",
-  "legacyMathML",
-  "forceLegacyMathML",
-  "arrowMarkerAbsolute",
-  "flowchart",
-  "sequence",
-  "gantt",
-  "journey",
-  "timeline",
-  "class",
-  "state",
-  "er",
-  "pie",
-  "quadrantChart",
-  "xyChart",
-  "requirement",
-  "architecture",
-  "mindmap",
-  "kanban",
-  "gitGraph",
-  "c4",
-  "sankey",
-  "packet",
-  "block",
-  "eventmodeling",
-  "treeView",
-  "radar",
-  "venn",
-  "ishikawa",
-  "swimlane",
-  "treemap",
-  "wardley-beta",
-  "cynefin",
-  "railroad",
-] as const;
-
 export const renderDiagram: PluginDiagramRendererModule["renderDiagram"] =
   async (request) => {
     const prepared = prepareSource(request.source);
@@ -151,27 +97,33 @@ export const renderDiagram: PluginDiagramRendererModule["renderDiagram"] =
       );
     }
     try {
-      mermaid.initialize(
-        configuration(
-          request.theme,
-          stableSeed(prepared.source),
-          prepared.displayMode,
-        ),
-      );
-      const rendered = await mermaid.render(
-        `denote-mermaid-${stableSeed(`${request.theme}\u0000${prepared.source}`)}`,
-        prepared.source,
-      );
+      const rendered = render(prepared.source, {
+        links: false,
+        images: false,
+        autoDirection: false,
+        fontFamily: "system-ui, sans-serif",
+        idPrefix: `denote-mermaid-${stableSeed(`${request.theme}\u0000${prepared.source}`)}`,
+        limit: MAX_PLUGIN_DIAGRAM_SOURCE_BYTES,
+        outputLimit: MAX_PLUGIN_DIAGRAM_SVG_BYTES,
+        maxEdges: MERMAID_RENDERER_LIMITS.maxEdges,
+        ...(prepared.displayMode
+          ? { config: { gantt: { displayMode: prepared.displayMode } } }
+          : {}),
+      });
+      const svg = flattenSvgStyles(rendered.svg, request.theme);
+      if (new TextEncoder().encode(svg).byteLength > MAX_PLUGIN_DIAGRAM_SVG_BYTES) {
+        return error("RENDER_ERROR", "Diagram SVG exceeds the 2 MiB limit.");
+      }
       return {
         status: "success",
-        svg: flattenSvgStyles(rendered.svg),
-        diagramType: rendered.diagramType,
+        svg,
+        diagramType: rendered.mermaidType,
         accessibleName: prepared.title,
       };
     } catch (caught) {
       return {
         status: "error",
-        error: parseError(caught, prepared.lineOffset),
+        error: renderError(caught, prepared.lineOffset),
       };
     }
   };
@@ -434,12 +386,8 @@ function relationshipCount(source: string, diagramType: string): number {
   return 0;
 }
 
-function configuration(
-  theme: PluginDiagramTheme,
-  seed: string,
-  displayMode?: "compact",
-) {
-  const themeVariables =
+function themeVariables(theme: PluginDiagramTheme): Record<string, string> {
+  const palette =
     theme === "dark"
       ? {
           background: "#17191d",
@@ -448,10 +396,6 @@ function configuration(
           primaryBorderColor: "#b7c88b",
           lineColor: "#d7d2c7",
           secondaryColor: "#343b44",
-          tertiaryColor: "#22272e",
-          textColor: "#f2f0e9",
-          mainBkg: "#2b3139",
-          nodeBorder: "#b7c88b",
         }
       : theme === "high-contrast"
         ? {
@@ -461,10 +405,6 @@ function configuration(
             primaryBorderColor: "Highlight",
             lineColor: "CanvasText",
             secondaryColor: "Canvas",
-            tertiaryColor: "Canvas",
-            textColor: "CanvasText",
-            mainBkg: "Canvas",
-            nodeBorder: "Highlight",
           }
         : {
             background: "#ffffff",
@@ -473,36 +413,36 @@ function configuration(
             primaryBorderColor: "#52652e",
             lineColor: "#343a35",
             secondaryColor: "#e5ead8",
-            tertiaryColor: "#f8f7f3",
-            textColor: "#202421",
-            mainBkg: "#f4f1e8",
-            nodeBorder: "#52652e",
           };
+  const series =
+    theme === "dark"
+      ? [
+          "#9fbe85", "#a9cdf1", "#d7bcf1", "#ffb4bd",
+          "#add7bc", "#f2d87c", "#b1cf98", "#aaa9a2",
+        ]
+      : [
+          "#3f6132", "#285f91", "#6e3e91", "#9b2643",
+          "#276344", "#725600", "#173e64", "#51554d",
+        ];
   return {
-    startOnLoad: false,
-    securityLevel: "strict" as const,
-    suppressErrorRendering: true,
-    htmlLabels: false,
-    maxTextSize: MAX_PLUGIN_DIAGRAM_SOURCE_BYTES,
-    maxEdges: MERMAID_RENDERER_LIMITS.maxEdges,
-    look: "classic" as const,
-    theme: "base" as const,
-    themeVariables,
-    fontFamily: "system-ui, sans-serif",
-    handDrawnSeed: 1,
-    deterministicIds: true,
-    deterministicIDSeed: seed,
-    arrowMarkerAbsolute: false,
-    legacyMathML: false,
-    forceLegacyMathML: false,
-    logLevel: "fatal" as const,
-    secure: [...SECURE_CONFIGURATION_KEYS],
-    flowchart: { htmlLabels: false, layout: "dagre" },
-    class: { layout: "dagre" },
-    state: { layout: "dagre" },
-    er: { layout: "dagre" },
-    requirement: { layout: "dagre" },
-    ...(displayMode ? { gantt: { displayMode } } : {}),
+    "--pele-bg": palette.background,
+    "--pele-fg": palette.primaryTextColor,
+    "--pele-muted": palette.lineColor,
+    "--pele-line": palette.lineColor,
+    "--pele-surface": palette.primaryColor,
+    "--pele-surface-alt": palette.secondaryColor,
+    "--pele-border": palette.primaryBorderColor,
+    "--pele-accent": palette.primaryBorderColor,
+    "--pele-critical":
+      theme === "high-contrast"
+        ? "CanvasText"
+        : theme === "dark" ? "#ffb4bd" : "#9b2643",
+    "--pele-fg-on-light": "#202421",
+    "--pele-fg-on-dark": "#f2f0e9",
+    ...Object.fromEntries(series.map((color, index) => [
+      `--pele-series-${index + 1}`,
+      theme === "high-contrast" ? "CanvasText" : color,
+    ])),
   };
 }
 
@@ -532,12 +472,19 @@ const PRESENTATION_PROPERTIES = [
   "font-weight",
   "text-anchor",
   "dominant-baseline",
+  "stop-color",
+  "stop-opacity",
+  "rx",
+  "ry",
 ] as const;
 
-function flattenSvgStyles(source: string): string {
+const LOCAL_PAINT_WITH_FALLBACK =
+  /^url\((["']?)(#[-A-Za-z0-9_.:]+)\1\)(?:\s+(?:none|rgba?\([\d.,%\s]+\)))?$/;
+
+function flattenSvgStyles(source: string, theme: PluginDiagramTheme): string {
   const parsed = new DOMParser().parseFromString(source, "image/svg+xml");
   if (parsed.querySelector("parsererror") || parsed.documentElement.localName !== "svg") {
-    throw new Error("Mermaid returned malformed SVG.");
+    throw new Error("Pele returned malformed SVG.");
   }
   const host = document.createElement("div");
   host.style.position = "fixed";
@@ -546,6 +493,26 @@ function flattenSvgStyles(source: string): string {
   host.style.width = "1024px";
   host.style.height = "768px";
   const root = document.importNode(parsed.documentElement, true);
+  const variables = themeVariables(theme);
+  root.setAttribute("style", [
+    root.getAttribute("style") ?? "",
+    ...Object.entries(variables).map(
+      ([property, value]) => `${property}:${value}`,
+    ),
+  ].join(";"));
+  const bounds = root.getAttribute("viewBox")?.trim().split(/\s+/).map(Number);
+  if (
+    !bounds || bounds.length !== 4 || !bounds.every(Number.isFinite) ||
+    bounds[2] <= 0 || bounds[3] <= 0
+  ) {
+    throw new Error("Pele returned an invalid SVG view box.");
+  }
+  const background = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  for (const [index, property] of ["x", "y", "width", "height"].entries()) {
+    background.setAttribute(property, String(bounds[index]));
+  }
+  background.setAttribute("fill", variables["--pele-bg"]);
+  root.prepend(background);
   host.appendChild(root);
   document.body.appendChild(host);
   try {
@@ -560,7 +527,11 @@ function flattenSvgStyles(source: string): string {
         element,
         PRESENTATION_PROPERTIES.flatMap((property) => {
           const value = computed.getPropertyValue(property).trim();
-          return value ? [[property, value] as [string, string]] : [];
+          const localPaint = value.replace(
+            LOCAL_PAINT_WITH_FALLBACK,
+            "url($2)",
+          );
+          return localPaint ? [[property, localPaint] as [string, string]] : [];
         }),
       );
     }
@@ -581,31 +552,30 @@ function flattenSvgStyles(source: string): string {
   }
 }
 
-function parseError(
+function renderError(
   caught: unknown,
   lineOffset = 0,
 ): PluginDiagramRenderError {
-  const raw =
-    caught instanceof Error
-      ? caught.message
-      : typeof caught === "object" &&
-          caught !== null &&
-          "str" in caught &&
-          typeof caught.str === "string"
-        ? caught.str
-        : String(caught);
+  const raw = caught instanceof Error ? caught.message : String(caught);
   const message = raw
     .replace(/[\u0000-\u001f\u007f]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, MAX_PLUGIN_DIAGRAM_ERROR_MESSAGE);
-  const line = raw.match(/(?:line|Line)\s+(\d+)/)?.[1];
-  const column = raw.match(/(?:column|col)\s+(\d+)/i)?.[1];
+  const located = caught instanceof PeleError ? caught : null;
   return {
-    code: "PARSE_ERROR",
-    message: message || "Mermaid could not parse this diagram.",
-    ...(line ? { line: Number(line) + lineOffset } : {}),
-    ...(column ? { column: Number(column) } : {}),
+    code: located
+      ? located.code === "unsupported-diagram"
+        ? "UNSUPPORTED_DIAGRAM"
+        : located.code === "limit" ? "SOURCE_LIMIT" : "PARSE_ERROR"
+      : "RENDER_ERROR",
+    message: message || "Pele could not render this diagram.",
+    ...(located && Number.isSafeInteger(located.line) && located.line > 0
+      ? { line: located.line + lineOffset }
+      : {}),
+    ...(located && Number.isSafeInteger(located.column) && located.column > 0
+      ? { column: located.column }
+      : {}),
   };
 }
 
