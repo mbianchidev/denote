@@ -37,8 +37,9 @@ test.beforeEach(async ({ page }) => {
   pageErrors = [];
   unexpectedRequests = [];
   page.on("pageerror", (error) => pageErrors.push(error.message));
-  await page.route(/https?:\/\//, async (route) => {
-    if (new URL(route.request().url()).pathname === "/mermaid-trial") {
+  const fixtureUrl = new URL("/mermaid-trial", test.info().project.use.baseURL).href;
+  await page.route(/^https?:\/\//, async (route) => {
+    if (route.request().url() === fixtureUrl && route.request().resourceType() === "document") {
       await route.fulfill({
         contentType: "text/html",
         body: '<!doctype html><html><head><link rel="icon" href="data:,"></head><body></body></html>',

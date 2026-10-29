@@ -455,6 +455,14 @@ theme-colored backdrop preserves standalone export contrast. Pixel checks
 verify that backdrop after decoding the SVG without application CSS. Quoted local
 paint references become `url(#id)` without broadening the host sanitizer.
 
+On macOS, exercise the same opaque-frame and standalone-export checks in WebKit
+as well as CI's Chromium:
+
+```bash
+npm exec --no -- playwright install webkit
+npm exec --no -- playwright test benchmarks/mermaid.perf.ts --browser=webkit
+```
+
 The local Vite renderer build measured 299,799 gzip bytes versus 1,611,804 for
 the previous Mermaid 12.2 package, using Node's default `gzipSync` on each built
 `dist/renderer.js`. These are Denote bundle measurements, not upstream's
