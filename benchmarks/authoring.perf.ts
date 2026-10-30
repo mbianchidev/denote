@@ -31,18 +31,14 @@ test.afterEach(async ({ page }) => {
 });
 
 async function selectRichText(page: Page, phrase: string) {
-  await page.getByRole("textbox", { name: "editable markdown", exact: true }).focus();
-  await page.getByText("A short phrase for review.", { exact: true }).evaluate((element, phrase) => {
-    const node = element.firstChild;
-    if (!node?.textContent) throw new Error("Missing synthetic text node");
-    const from = node.textContent.indexOf(phrase);
-    if (from < 0) throw new Error("Missing synthetic selection");
-    const range = document.createRange();
-    range.setStart(node, from); range.setEnd(node, from + phrase.length);
-    const selection = window.getSelection();
-    selection?.removeAllRanges(); selection?.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-  }, phrase);
+  const paragraph = page.getByText("A short phrase for review.", { exact: true });
+  const from = (await paragraph.textContent())?.indexOf(phrase) ?? -1;
+  if (from < 0) throw new Error("Missing synthetic selection");
+  await paragraph.click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowLeft" : "Home");
+  for (let index = 0; index < from; index++) await page.keyboard.press("ArrowRight");
+  for (let index = 0; index < phrase.length; index++) await page.keyboard.press("Shift+ArrowRight");
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(phrase);
 }
 
 test("Rich edits and autosave preserve literal equals signs, trailing spaces, tabs, and hard breaks", async ({ page }) => {
