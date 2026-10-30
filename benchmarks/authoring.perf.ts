@@ -45,6 +45,28 @@ async function selectRichText(page: Page, phrase: string) {
   }, phrase);
 }
 
+test("Rich edits and autosave preserve literal equals signs, trailing spaces, tabs, and hard breaks", async ({ page }) => {
+  const source = "= literal. \t\n\nKept. \n\nHard break.  \nNext line.\t\n\nEdit here";
+  await page.evaluate((source) => { window.__DENOTE_AUTHORING__.documents["Authoring.md"] = source; }, source);
+  await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+  const rich = page.getByRole("textbox", { name: "editable markdown", exact: true });
+  await expect(rich).toBeVisible();
+  await rich.focus();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+  await page.keyboard.type("!");
+  await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
+  await page.getByRole("radio", { name: "Source mode", exact: true }).click();
+  await expect(page.locator(".markdown-editor-shell .cm-content:visible")).toHaveText(`${source}!`);
+  await page.getByRole("radio", { name: "Rich text", exact: true }).click();
+  await rich.focus();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
+  await page.keyboard.type(". ");
+  await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!. `);
+  await page.getByRole("radio", { name: "Source mode", exact: true }).click();
+  await expect(page.locator(".markdown-editor-shell .cm-content:visible")).toHaveText(`${source}!. `);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("real approved workers format exact source and keep comments portable through orphan recovery", async ({ page }) => {
   await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
   await expect(page.locator(".denote-text-style").filter({ hasText: "Existing excerpt" })).toBeVisible();

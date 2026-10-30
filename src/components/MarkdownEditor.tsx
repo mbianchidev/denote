@@ -156,6 +156,7 @@ import { AuthoringRichContext, styledLiteralRanges, styledMarkdownPlugin } from 
 import { AudioRenderContext, audioMarkdownPlugin } from "./AudioMarkdownNode";
 import type { SpeechAudioBinding } from "../lib/speech";
 import type { AuthoringEditorBinding } from "../lib/authoring";
+import { preserveRichSourceFormatting } from "../lib/richSourceFormatting";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
@@ -302,7 +303,7 @@ const standardMarkdownCompatibilityPlugin = realmPlugin({
       {
         handlers: {
           root(node, parent, state, info) {
-            state.unsafe = state.unsafe.map((rule): Unsafe => {
+            state.unsafe = state.unsafe.flatMap((rule): Unsafe | Unsafe[] => {
               // A directive colon is not syntax inside a URI destination or mailto scheme.
               if (
                 rule.character === ":" &&
@@ -330,6 +331,19 @@ const standardMarkdownCompatibilityPlugin = realmPlugin({
                   after: "(?:#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});",
                   inConstruct: rule.inConstruct,
                 };
+              }
+              if (rule.character === "=" && rule.atBreak) {
+                return {
+                  character: "=",
+                  before: "[^\\r\\n][\\r\\n][ \\t]{0,3}",
+                  after: "=*[ \\t]*(?:[\\r\\n]|$)",
+                };
+              }
+              if (rule.character === "=" && rule.inConstruct === "phrasing" && !rule.before && !rule.after) {
+                return [
+                  { character: "=", before: "=", inConstruct: rule.inConstruct, notInConstruct: rule.notInConstruct },
+                  { character: "=", after: "=", inConstruct: rule.inConstruct, notInConstruct: rule.notInConstruct },
+                ];
               }
               return rule;
             });
@@ -1185,7 +1199,9 @@ export const MarkdownEditor = forwardRef<
                       )
                     : restoredMarkdown;
                 const markerUpdate = applyTocMarkerViewChange(
-                  normalizedMarkdown,
+                  activeViewModeRef.current === "rich-text"
+                    ? preserveRichSourceFormatting(normalizedMarkdown, serialization.current)
+                    : normalizedMarkdown,
                   tocMarkersRef.current!,
                   activeViewModeRef.current,
                   parse,
@@ -1200,7 +1216,7 @@ export const MarkdownEditor = forwardRef<
                 if (activeViewModeRef.current === "rich-text") {
                   output = restoreRichTextBoundarySpaces(output, parse);
                 }
-                if (sourceLineBreak !== "\n" && activeViewModeRef.current === "source") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
+                if (sourceLineBreak !== "\n") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
                 if (activeViewModeRef.current === "source") {
                   boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
                 }

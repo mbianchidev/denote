@@ -2286,14 +2286,28 @@ a note or start autosave just because Rich serialization drops whitespace.
 The leading/trailing-whitespace snapshot refreshes after explicit Source edits,
 so a later Rich edit cannot resurrect deliberately deleted spaces or blank lines.
 
-The standard Markdown serialization extension adjusts only the directive-colon
-and character-reference safety rules through MDXEditor's supported export API.
+The standard Markdown serialization extension adjusts directive-colon,
+character-reference, and equals-sign safety rules through MDXEditor's supported export API.
 Directive syntax is not recognized in URI destinations or the `mailto:` scheme.
 An ampersand is escaped only when the following text can form a character
 reference, not for an ordinary `&cc=` query separator. The ordinary
 `mdast-util-to-markdown` root handler still serializes the tree; code, required
 escapes, reference nodes, callouts, and source-only fallbacks retain their
 existing boundaries.
+Equals signs are escaped only for a possible setext underline or adjacent
+highlight delimiters, not for an isolated literal or ordinary comparison.
+Paragraph-ending space/tab references are restored to literal whitespace while
+code, escaped entities, and structural Markdown remain protected.
+
+Rich output is reconciled against the previous serialized/source pair before
+TOC marker restoration. The existing bounded source-history baseline supplies
+that pair; no extra document-history cache or parser pass is added. Only
+non-overlapping whitespace/backslash normalization differences are restored,
+so unrelated line endings, spaces, tabs, hard breaks, and explicit escapes
+survive an edit elsewhere. Structural extensions retain ownership of markers
+and delimiters. Source transactions become the next authoritative baseline,
+and deleted content is not reconstructed. The direct `diff` dependency is the
+same reviewed version already used by the diff viewer.
 
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.

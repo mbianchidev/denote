@@ -214,6 +214,9 @@ describe("markdown utilities", () => {
     expect(restoreRichTextBoundarySpaces("A &&#x20;")).toBe("A & ");
     expect(restoreRichTextBoundarySpaces("&#32;&")).toBe(" &");
     expect(restoreRichTextBoundarySpaces("A &&#x20;\n\nNext")).toBe("A & \n\nNext");
+    expect(restoreRichTextBoundarySpaces("Synthetic.&#x20;")).toBe("Synthetic. ");
+    expect(restoreRichTextBoundarySpaces("Synthetic. &#x20;")).toBe("Synthetic.  ");
+    expect(restoreRichTextBoundarySpaces("Synthetic. &#x9;")).toBe("Synthetic. \t");
     for (const source of [
       "`&&#x20;`",
       "```\n&&#x20;\n```",

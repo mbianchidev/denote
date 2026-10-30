@@ -7,6 +7,10 @@ Opening a note, focusing it, or switching between Rich and Source does not edit
 or autosave it. Trailing spaces, tabs, and blank lines remain in the source.
 If you remove whitespace explicitly in Source, Denote does not restore it after
 you switch back to Rich.
+Editing elsewhere in Rich also preserves untouched trailing spaces, tabs, hard
+breaks, and line endings. Literal equals signs and spaces after punctuation are
+not unnecessarily escaped or removed. Backslashes remain when Markdown needs
+them to distinguish literal text from an actual heading or formatting marker.
 
 ## Common Markdown
 

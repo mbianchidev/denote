@@ -140,6 +140,11 @@ not publish edits or start autosave, including trailing spaces/tabs and LF, CRLF
 and CR input. Explicit Source whitespace removal must survive later Rich edits.
 Keep `mailto:` destinations and query separators unescaped while preserving
 required directive/entity escapes and literal backslashes in code.
+Rich-edit regressions also compare byte-exact per-line trailing spaces, tabs,
+hard-break spelling, line endings, and literal equals signs, including repeated
+edits, Source round trips, and explicit Source whitespace deletion. The browser
+authoring gate checks the saved native-IPC payload with optional authoring
+plugins enabled, not just the rendered text.
 
 Production-browser responsiveness has a separate measured regression gate:
 
@@ -1541,14 +1546,12 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-29**.
+Last vendored-library check: **2026-10-30**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the note-dictation and sensitive-sidebar follow-up using the
+the literal-symbol and trailing-space preservation fix using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
-The shortcut-configuration and sidebar-spacing follow-up repeated the complete
-release, tracker, and RustSec check later on the same date; the versions,
-compatibility constraints, and no-compatible-replacement outcome below remain
-unchanged.
+The complete release-note, tracker, and RustSec check found the same versions,
+compatibility constraints, and no compatible replacement as the previous check.
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream
 fixes and backport requests, and each linked RustSec advisory were checked

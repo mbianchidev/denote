@@ -147,6 +147,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Rich serialization does not add directive escapes to `mailto:` destinations
   or unnecessary escapes to ordinary URI query separators; required Markdown
   escapes and literal backslashes in code remain intact.
+  Rich edits also retain untouched per-line spaces, tabs, hard-break spelling,
+  and line endings. A literal `=` stays unescaped unless it would form a real
+  heading underline or highlight delimiter; typed trailing spaces after
+  punctuation remain literal spaces, not character references.
 - Full, collapsed, and shortcut Markdown reference links render and remain
   editable in Rich mode. Definitions stay invisible and retain their exact
   source formatting and ordering.
