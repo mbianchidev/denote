@@ -1020,13 +1020,17 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn version_probe_does_not_wait_for_inherited_output_pipes() {
-        let (_directory, path) = synthetic_tool("sleep 8 &\nprintf 'git version synthetic\\n'");
-        let started = std::time::Instant::now();
+        let (directory, path) = synthetic_tool(
+            "(sleep 8; : > \"${0%/*}/descendant-finished\") &\nprintf 'git version synthetic\\n'",
+        );
         assert_eq!(
             probe(&path, ToolKind::Git).expect("version"),
             "git version synthetic"
         );
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert!(
+            !directory.path().join("descendant-finished").exists(),
+            "the version probe waited for an inherited-output descendant"
+        );
     }
 
     #[cfg(unix)]

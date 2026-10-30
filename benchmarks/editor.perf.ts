@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { build } from "vite";
+import { painted } from "./browser";
 
 let fixture = "";
 let pageErrors: string[] = [];
@@ -39,12 +40,6 @@ test.afterEach(async ({ page }) => {
   expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.unexpectedCommands)).toEqual([]);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
-
-async function painted(page: Page): Promise<void> {
-  await page.evaluate(() => new Promise<void>((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-  ));
-}
 
 async function openPage(page: Page, name: string, expectedText: string): Promise<number> {
   const button = page.getByRole("button", { name, exact: true });

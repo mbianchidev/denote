@@ -74,6 +74,14 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+Cargo defaults to two native test threads through `.cargo/config.toml`. Git
+integration fixtures launch real process groups; CPU-count parallelism can
+starve executable probes and cancellation handshakes before their deadlines.
+The application's five-second version checks and output limits stay unchanged.
+An explicit `RUST_TEST_THREADS` value or `--test-threads` argument still takes
+precedence. The inherited-output regression checks a descendant's completion
+marker instead of imposing a separate two-second scheduling threshold.
+
 Vitest uses isolated forks with at most two concurrent workers, leaving one CPU
 available on smaller machines. This bounds cold `jsdom` startup pressure instead
 of scaling expensive environments to every available CPU. Each file still gets
@@ -145,6 +153,12 @@ hard-break spelling, line endings, and literal equals signs, including repeated
 edits, Source round trips, and explicit Source whitespace deletion. The browser
 authoring gate checks the saved native-IPC payload with optional authoring
 plugins enabled, not just the rendered text.
+Rich input waits for the intended paragraph and uses a native click and
+keyboard events; a visible editor shell alone does not mean its document has
+finished loading. Selection-only preparation can retry within the existing
+five-second budget until the exact phrase stays selected after painting, using
+the same frame synchronization as the editor responsiveness checks. Typing and
+document mutations are never retried.
 Marker coverage includes underscore italics/strong text, adjacent and nested
 mixed delimiters, all three unordered-list markers, task lists, explicit Source
 marker changes, and real keyboard continuation of each bullet style.
@@ -1551,16 +1565,16 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-30**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the literal-symbol and trailing-space preservation fix using the
+the Git executable-probe test investigation using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
 The complete release-note, tracker, and RustSec check found the same versions,
 compatibility constraints, and no compatible replacement as the previous check.
-The official
-[crates.io API](https://crates.io/data-access), release notes, linked upstream
-fixes and backport requests, and each linked RustSec advisory were checked
-again. Published versions and dependency requirements were read directly from
-the official sparse registry index. Compatible versions are unchanged; current
-stable releases are listed below. RustSec's package pages have no direct entries
+The [crates.io API](https://crates.io/data-access) returned HTTP 403, so published
+versions and dependency requirements were read from its official registry index
+through GitHub. Release notes, linked upstream fixes and backport requests, and
+the [official RustSec advisory sources](https://github.com/RustSec/advisory-db/tree/main/crates)
+were checked directly. Compatible versions are unchanged; current stable
+releases are listed below. RustSec has no direct entries
 for GLib macros, URLPattern, or the three Tauri plugins, so their affected
 macro-error, Unicode, and D-Bus dependencies were checked explicitly against
 the advisories below. The three plugins also publish 3.0.0-alpha.3,
