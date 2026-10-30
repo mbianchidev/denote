@@ -153,6 +153,9 @@ hard-break spelling, line endings, and literal equals signs, including repeated
 edits, Source round trips, and explicit Source whitespace deletion. The browser
 authoring gate checks the saved native-IPC payload with optional authoring
 plugins enabled, not just the rendered text.
+Rich input waits for the intended paragraph and uses a native click and
+keyboard events; a visible editor shell alone does not mean its document has
+finished loading.
 Marker coverage includes underscore italics/strong text, adjacent and nested
 mixed delimiters, all three unordered-list markers, task lists, explicit Source
 marker changes, and real keyboard continuation of each bullet style.
