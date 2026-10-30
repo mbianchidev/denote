@@ -155,7 +155,10 @@ authoring gate checks the saved native-IPC payload with optional authoring
 plugins enabled, not just the rendered text.
 Rich input waits for the intended paragraph and uses a native click and
 keyboard events; a visible editor shell alone does not mean its document has
-finished loading.
+finished loading. Selection-only preparation can retry within the existing
+five-second budget until the exact phrase stays selected after painting, using
+the same frame synchronization as the editor responsiveness checks. Typing and
+document mutations are never retried.
 Marker coverage includes underscore italics/strong text, adjacent and nested
 mixed delimiters, all three unordered-list markers, task lists, explicit Source
 marker changes, and real keyboard continuation of each bullet style.

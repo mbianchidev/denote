@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { build } from "vite";
 import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
+import { painted } from "./browser";
 
 let fixture = "";
 let errors: string[] = [];
@@ -34,11 +35,14 @@ async function selectRichText(page: Page, phrase: string) {
   const paragraph = page.getByText("A short phrase for review.", { exact: true });
   const from = (await paragraph.textContent())?.indexOf(phrase) ?? -1;
   if (from < 0) throw new Error("Missing synthetic selection");
-  await paragraph.click();
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowLeft" : "Home");
-  for (let index = 0; index < from; index++) await page.keyboard.press("ArrowRight");
-  for (let index = 0; index < phrase.length; index++) await page.keyboard.press("Shift+ArrowRight");
-  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString())).toBe(phrase);
+  await expect(async () => {
+    await paragraph.click();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowLeft" : "Home");
+    for (let index = 0; index < from; index++) await page.keyboard.press("ArrowRight");
+    for (let index = 0; index < phrase.length; index++) await page.keyboard.press("Shift+ArrowRight");
+    await painted(page);
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(phrase);
+  }).toPass({ timeout: 5000 });
 }
 
 test("Rich edits and autosave preserve literal equals signs, trailing spaces, tabs, and hard breaks", async ({ page }) => {
