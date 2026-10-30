@@ -56,16 +56,39 @@ test("Rich edits and autosave preserve literal equals signs, trailing spaces, ta
   await page.keyboard.type("!");
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
   await page.getByRole("radio", { name: "Source mode", exact: true }).click();
-  await expect(page.locator(".markdown-editor-shell .cm-content:visible")).toHaveText(`${source}!`);
+  await expect.poll(() => page.locator(".markdown-editor-shell .cm-content:visible .cm-line").allTextContents()).toEqual(`${source}!`.split("\n"));
   await page.getByRole("radio", { name: "Rich text", exact: true }).click();
   await rich.focus();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowDown" : "Control+End");
   await page.keyboard.type(". ");
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!. `);
   await page.getByRole("radio", { name: "Source mode", exact: true }).click();
-  await expect(page.locator(".markdown-editor-shell .cm-content:visible")).toHaveText(`${source}!. `);
+  await expect.poll(() => page.locator(".markdown-editor-shell .cm-content:visible .cm-line").allTextContents()).toEqual(`${source}!. `.split("\n"));
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+for (const marker of ["-", "+", "*"]) {
+  test(`Rich editing retains underscore emphasis and ${marker} list markers, including new items`, async ({ page }) => {
+    const source = `_An invented italic sentence._\n\n${marker} First synthetic item\n${marker} Second synthetic item`;
+    await page.evaluate((source) => { window.__DENOTE_AUTHORING__.documents["Authoring.md"] = source; }, source);
+    await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+    const italic = page.getByRole("textbox", { name: "editable markdown", exact: true }).locator("em").first();
+    await expect(italic).toHaveText("An invented italic sentence.");
+    await page.getByText("Second synthetic item", { exact: true }).click();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+    await page.keyboard.type("!");
+    await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Third synthetic item");
+    const expected = `${source}!\n${marker} Third synthetic item`;
+    await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(expected);
+    await page.getByRole("radio", { name: "Source mode", exact: true }).click();
+    await expect.poll(() => page.locator(".markdown-editor-shell .cm-content:visible .cm-line").allTextContents()).toEqual(expected.split("\n"));
+    await page.getByRole("radio", { name: "Rich text", exact: true }).click();
+    await expect(italic).toHaveText("An invented italic sentence.");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+}
 
 test("real approved workers format exact source and keep comments portable through orphan recovery", async ({ page }) => {
   await page.getByRole("button", { name: "Authoring.md", exact: true }).click();

@@ -2308,6 +2308,16 @@ survive an edit elsewhere. Structural extensions retain ownership of markers
 and delimiters. Source transactions become the next authoritative baseline,
 and deleted content is not reconstructed. The direct `diff` dependency is the
 same reviewed version already used by the diff viewer.
+Original emphasis, strong, and unordered-list markers are also captured through
+public import visitors into Lexical node state. Export visitors delegate the
+ordinary format/list conversion, then carry each marker into typed MDAST data.
+Adjacent emphasis runs with different source markers remain separate, and new
+list items inherit the nearest original sibling's marker. Marker-aware attention
+handlers retain the serializer's `attention`/`peek` contract and its delimiter
+collision handling. The root wraps the installed list-item handler rather than
+replacing GFM task serialization, so checkboxes and nested lists remain intact.
+This adds no document parser pass, worker permission, or source metadata file;
+Source imports and ordinary Lexical undo/redo retain ownership of explicit edits.
 
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.

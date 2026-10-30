@@ -11,6 +11,9 @@ Editing elsewhere in Rich also preserves untouched trailing spaces, tabs, hard
 breaks, and line endings. Literal equals signs and spaces after punctuation are
 not unnecessarily escaped or removed. Backslashes remain when Markdown needs
 them to distinguish literal text from an actual heading or formatting marker.
+Your chosen italic, bold, and bullet markers stay unchanged: `_italic_` does not
+become `*italic*`, and `- item` does not become `* item`. New items continue the
+existing list style. Explicit marker changes in Source remain authoritative.
 
 ## Common Markdown
 

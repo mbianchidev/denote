@@ -151,6 +151,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   and line endings. A literal `=` stays unescaped unless it would form a real
   heading underline or highlight delimiter; typed trailing spaces after
   punctuation remain literal spaces, not character references.
+  Existing italic and bold delimiter choices (`_` / `*`, `__` / `**`) and
+  unordered-list markers (`-`, `+`, `*`) remain intact. Newly continued list
+  items inherit the surrounding marker rather than normalizing the list.
 - Full, collapsed, and shortcut Markdown reference links render and remain
   editable in Rich mode. Definitions stay invisible and retain their exact
   source formatting and ordering.

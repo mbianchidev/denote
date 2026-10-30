@@ -157,6 +157,7 @@ import { AudioRenderContext, audioMarkdownPlugin } from "./AudioMarkdownNode";
 import type { SpeechAudioBinding } from "../lib/speech";
 import type { AuthoringEditorBinding } from "../lib/authoring";
 import { preserveRichSourceFormatting } from "../lib/richSourceFormatting";
+import { markdownSourceMarkersPlugin, withOriginalListMarkers } from "../lib/markdownSourceMarkers";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
@@ -347,7 +348,7 @@ const standardMarkdownCompatibilityPlugin = realmPlugin({
               }
               return rule;
             });
-            return defaultHandlers.root(node, parent, state, info);
+            return withOriginalListMarkers(state, () => defaultHandlers.root(node, parent, state, info));
           },
         },
       },
@@ -739,6 +740,7 @@ export const MarkdownEditor = forwardRef<
       safeRichHtmlPlugin(),
       referenceMarkdownPlugin({ snapshot: referenceSnapshotRef }),
       standardMarkdownCompatibilityPlugin(),
+      markdownSourceMarkersPlugin({ source: () => editorSourceRef.current }),
       viewModePreferencePlugin({
         mode: realmInitialViewMode,
         isSourceForced: () => sourceForcedRef.current,

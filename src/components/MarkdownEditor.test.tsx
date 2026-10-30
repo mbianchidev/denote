@@ -5,7 +5,7 @@ import { undo } from "@codemirror/commands";
 import type { MDXEditorMethods } from "@mdxeditor/editor";
 import userEvent from "@testing-library/user-event";
 import { createRef, StrictMode, useState } from "react";
-import { $getRoot, $getSelection, $isRangeSelection, type LexicalEditor } from "lexical";
+import { $getRoot, $getSelection, $isRangeSelection, $isTextNode, type LexicalEditor } from "lexical";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { api } from "../lib/api";
@@ -132,6 +132,68 @@ describe("MarkdownEditor task lists", () => {
 });
 
 describe("MarkdownEditor literal punctuation", () => {
+  it.each([
+    "_An invented sentence._\n\nEdit here",
+    "__Synthetic bold.__ and _synthetic italic_.\n\nEdit here",
+    "_First_*second* __third__**fourth**.\n\nEdit here",
+    "_Synthetic __nested bold__ sentence_.\n\nEdit here",
+    "- First synthetic item\n- Second synthetic item\n\nEdit here",
+    "+ First synthetic item\n  - Nested synthetic item\n\nEdit here",
+    "- [ ] Synthetic task\n- [x] Completed synthetic task\n\nEdit here",
+    "* Asterisk item\n\n- Hyphen item\n\n+ Plus item\n\nEdit here",
+  ])("keeps the original emphasis and bullet markers when editing elsewhere: %s", async (source) => {
+    const changed = vi.fn();
+    const { container } = render(<MarkdownEditor notePath="synthetic.md" markdown={source} lineEnding="lf"
+      displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} preferredViewMode="rich-text" readOnly={false}
+      onChange={changed} onError={vi.fn()} onLinkOpen={vi.fn()} onViewModeChange={vi.fn()} onImageUpload={vi.fn()} />);
+    if (source.startsWith("_An")) expect(container.querySelector("em")).toHaveTextContent("An invented sentence.");
+    await appendSyntheticRichText("!");
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith(`${source}!`));
+  });
+
+  it("keeps underscore italics when editing inside the formatted sentence", async () => {
+    const changed = vi.fn();
+    render(<MarkdownEditor notePath="synthetic.md" markdown="_An invented sentence._" lineEnding="lf"
+      displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} preferredViewMode="rich-text" readOnly={false}
+      onChange={changed} onError={vi.fn()} onLinkOpen={vi.fn()} onViewModeChange={vi.fn()} onImageUpload={vi.fn()} />);
+    const root = await screen.findByRole("textbox", { name: "editable markdown" });
+    const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+    act(() => editor.update(() => {
+      const text = $getRoot().getLastDescendant();
+      if (!$isTextNode(text)) throw new Error("Missing synthetic italic text");
+      const selection = text.selectEnd();
+      selection.format = text.getFormat();
+      selection.insertText("!");
+    }, { discrete: true }));
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith("_An invented sentence.!_"));
+  });
+
+  it("uses explicit Source marker changes for subsequent Rich edits", async () => {
+    const user = userEvent.setup();
+    const source = "_Synthetic italic_.\n\n- Synthetic item\n\nEdit here";
+    const changed = vi.fn();
+    function Editor() {
+      const [markdown, setMarkdown] = useState(source);
+      return <MarkdownEditor notePath="synthetic.md" markdown={markdown} lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} preferredViewMode="rich-text" readOnly={false}
+        onChange={(value) => { changed(value); setMarkdown(value); }} onError={vi.fn()} onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()} onImageUpload={vi.fn()} />;
+    }
+    const { container } = render(<Editor />);
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    const view = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-sourceView .cm-editor");
+      expect(element).not.toBeNull();
+      return EditorView.findFromDOM(element!)!;
+    });
+    const explicit = "*Synthetic italic*.\n\n+ Synthetic item\n\nEdit here";
+    act(() => view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: explicit } }));
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith(explicit));
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    await appendSyntheticRichText("!");
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith(`${explicit}!`));
+  });
+
   it.each([
     { initial: "Edit here", typed: " &", expected: "Edit here &" },
     { initial: "Edit here", typed: " & ", expected: "Edit here & " },
