@@ -312,15 +312,31 @@ export function restoreRichTextBoundarySpaces(
   markdown: string,
   parse: MarkdownParser = fromMarkdown,
 ): string {
-  if (!/&#(?:x20|32);/iu.test(markdown)) return markdown;
+  if (!/&#(?:x20|32|x9|9);/iu.test(markdown)) return markdown;
   const leadingSpace = /^&#(?:x20|32);(?!&#(?:x20|32);)(?=[\p{L}&(])/iu;
-  const trailingSpace = /(?<=[\p{L}\p{N}\p{M}&])&#(?:x20|32);(?=[ \r\n]*$)/iu;
+  const trailingSpace = /(?:[ \t]|&#(?:x20|32|x9|9);)+(?=[\r\n]*$)/iu;
+  const decodeTrailing = (source: string) => {
+    const match = trailingSpace.exec(source);
+    if (!match || !match[0].includes("&#") || isEscapedAt(source, match.index)) return null;
+    const prefix = source.slice(0, match.index);
+    const lines = prefix.split(/\r\n|\r|\n/);
+    const last = lines[lines.length - 1];
+    if (/^ {0,3}(?:#{1,6}|[+-]|\*+|_+|\d+[.)])$/u.test(last) ||
+        last.includes("|") && /^[| \t:=-]+$/u.test(last) ||
+        lines.length > 1 && /^ {0,3}=+$/u.test(last)) return null;
+    return { start: match.index, end: match.index + match[0].length,
+      value: match[0].replace(/&#(?:x20|32);/giu, " ").replace(/&#(?:x9|9);/giu, "\t") };
+  };
   if (!/[\\`*_\[\]<>~|:+=\-]|\t|(?<!&)#|(?:^|\n) {4}/u.test(markdown)) {
     return markdown.split(/(\n{2,})/u)
-      .map((paragraph) => paragraph.replace(leadingSpace, " ").replace(trailingSpace, " "))
+      .map((paragraph) => {
+        const source = paragraph.replace(leadingSpace, " ");
+        const trailing = decodeTrailing(source);
+        return trailing ? source.slice(0, trailing.start) + trailing.value + source.slice(trailing.end) : source;
+      })
       .join("");
   }
-  const replacements: Array<{ start: number; end: number }> = [];
+  const replacements: Array<{ start: number; end: number; value: string }> = [];
   visitMarkdownAst(parse(markdown), (node) => {
     if (node.type !== "paragraph") return;
     const first = node.children?.[0];
@@ -329,18 +345,20 @@ export function restoreRichTextBoundarySpaces(
       const start = first.position.start.offset;
       const source = markdown.slice(start, first.position.end.offset);
       const match = leadingSpace.exec(source);
-      if (match) replacements.push({ start, end: start + match[0].length });
+      if (match) replacements.push({ start, end: start + match[0].length, value: " " });
     }
-    if (last?.type === "text" && last.position?.end.offset !== undefined) {
+    if (last?.type === "text" && last.position?.start.offset !== undefined && last.position.end.offset !== undefined) {
+      const start = last.position.start.offset;
       const end = last.position.end.offset;
-      const source = markdown.slice(last.position.start.offset, end);
-      const match = trailingSpace.exec(source);
-      if (match) replacements.push({ start: end - match[0].length, end });
+      const source = markdown.slice(start, end);
+      const trailing = decodeTrailing(source);
+      if (trailing) replacements.push({ start: start + trailing.start,
+        end: start + trailing.end, value: trailing.value });
     }
   });
   let output = markdown;
-  for (const { start, end } of replacements.sort((a, b) => b.start - a.start)) {
-    output = `${output.slice(0, start)} ${output.slice(end)}`;
+  for (const { start, end, value } of replacements.sort((a, b) => b.start - a.start)) {
+    output = `${output.slice(0, start)}${value}${output.slice(end)}`;
   }
   return output;
 }

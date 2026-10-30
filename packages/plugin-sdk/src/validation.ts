@@ -217,6 +217,12 @@ export function validatePluginManifest(
     isRecord(permission) && CLOCK_CONTENT_CAPABILITIES.some((capability) => capability === permission.capability))) {
     errors.push("clocks cannot share a worker with content-based capabilities.");
   }
+  if (Array.isArray(value.permissions) &&
+      value.permissions.some((permission) => isRecord(permission) &&
+        ["speech", "credential-store"].includes(String(permission.capability))) &&
+      value.permissions.length !== 1) {
+    errors.push("Sensitive tools require one isolated speech or credential-store permission.");
+  }
   if (value.legal !== undefined) {
     if (!Array.isArray(value.legal) || value.legal.length === 0) {
       errors.push("legal must be a non-empty array.");

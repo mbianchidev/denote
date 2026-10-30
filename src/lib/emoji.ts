@@ -240,6 +240,7 @@ export class EmojiSourceHistory {
   private pending: string | null = null;
   private historyChange = false;
 
+  get current(): Readonly<{ serialized: string; source: string }> | null { return this.baseline; }
   record(serialized: string, source: string) { this.baseline = { serialized, source }; }
   beforeChange(history: boolean) { this.historyChange = history; }
   prepare(source: string) {

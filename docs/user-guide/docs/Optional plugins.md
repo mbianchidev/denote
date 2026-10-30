@@ -105,9 +105,7 @@ Opening an example never installs a plugin or initializes Git.
 ## Advanced authoring
 
 Text highlighting and coloring, Note comments, and Markdown presentation slides
-are separate plugins targeting Denote 0.11.0 and are off by default. Development
-previews keep application version 0.10.0 and require these authoring capabilities.
-Enable only
+are separate plugins and are off by default. Enable only
 the capabilities you want. Their controls appear above an open Markdown note;
 Source remains the complete portable fallback.
 
@@ -304,6 +302,155 @@ the preview, renderer scopes, full-screen ownership, timers, and listeners.
 Markdown, separators, and metadata remain readable and unchanged.
 
 Try the [Presentation deck](<../plugins/Presentation.md>).
+
+## Speech, voice notes, and transcription
+
+Speech is off by default. Enable it under **Accessibility**, open a Markdown
+note, and choose **Speech** in the activity rail, command palette, or note
+toolbar. Its sidebar stays beside the note rather than blocking the editor. Its single
+permission opens trusted host controls; downloaded plugin code never receives
+note text, audio, transcripts, device handles, or filesystem access.
+
+**Read note aloud** and **Read selection aloud** use installed voices explicitly
+identified as local. Choose **Local voice** and **Speech rate** before playback;
+**Pause speech**, **Resume speech**, and **Stop speech** remain keyboard
+operable. Missing offline voices are reported rather than replaced with a
+remote service.
+
+Press **Control-Space** by default in a Markdown note to start local dictation, in either
+Rich or Source. Press it again, or choose **Finish recording**, to stop and
+transcribe. Dictation requires the separately downloaded local model first;
+the shortcut never downloads anything or silently selects a remote service.
+In **Speech → Dictation shortcut**, enter a modified combination such as
+`Ctrl+Shift+D`, then choose **Save shortcut**. It applies immediately across
+vaults and persists on this device. **Use Ctrl+Space** restores the default.
+Use Ctrl, Alt/Option, or Cmd/Command with Space, a letter, a number, or F1-F12.
+Unmodified keys, malformed combinations, and existing Denote actions are
+rejected without changing the active binding. Shortcut fields cannot start
+recording, and focusing configuration cancels a still-pending dictation request.
+Finish or cancel recording before changing its binding. OS-reserved combinations
+may be intercepted before Denote receives them.
+**Start recording**, **Start dictation**, and this shortcut are the only
+microphone entry points. No manual caret placement or Source switch is required.
+Denote uses a safely mapped caret or selection when available. Otherwise, or if
+the note changed during recording, reviewed text is added to the end without
+replacing existing source. The review names the insertion destination.
+The panel shows written recording/paused state, elapsed
+time, and input level. Pause/resume, finish, and cancel use native buttons.
+Escape stops recording even while focus is in the note; it cancels a pending
+permission request and also stops any
+late grant. Backgrounding, closing, locking, switching vaults, and removing the
+plugin release capture and playback resources. Opening another dialog stops
+capture and clears unsaved audio and transcript drafts; nothing resumes
+automatically afterward.
+
+Recordings are limited to ten minutes and normalized to mono PCM16 WAV at
+16 kHz. Review the stopped recording, then choose **Save voice note**. Denote
+creates a collision-safe `assets/voice-<UUID>.wav` beside the note and inserts
+an ordinary relative Markdown link only after checking the saved note version.
+Unrelated source and disk line endings remain unchanged. Encrypted vaults
+encrypt audio at rest; no decrypted audio temporary file is made.
+
+Supported ordinary inline links to local WAV, MP3, M4A, AAC, Ogg, Opus, FLAC,
+and WebM files offer play/pause, seek, volume, speed, and confirmed unencrypted
+download. The ordinary link stays available. Playback/decoding support depends
+on the webview; unsupported formats keep their link and explain recovery.
+Only one player retains decoded audio at a time.
+
+**Local transcription model** separately asks approval for the pinned NVIDIA
+Nemotron 3.5 ASR Streaming 0.6B model, its OpenMDW 1.1 license, and the official
+NeMo-Speech.cpp 0.2.0 CPU runtime. The model is 742,090,464 bytes plus about
+5–7 MB for the platform runtime. Nothing downloads on enablement. SHA-256,
+exact sizes, immutable model revision, and approved HTTPS origins are verified.
+The offered locales are the 32 supported out-of-box locales plus automatic
+language detection, not the eight adaptation-only locales requiring fine-tuning.
+Unsupported systems report unavailable inference without a remote fallback.
+
+Choose **Transcribe audio locally** after recording or importing supported
+audio up to 25 MB and ten minutes. The native engine receives audio over
+anonymous pipes, never a plaintext staging file or HTTP service. Review and
+edit **Review transcript** before **Insert transcript**. Select returned
+timestamps before editing so toggling an option cannot discard reviewed text.
+Speaker labels require a separate diarization model and are not invented.
+An error keeps the existing source unchanged; cancellation discards late results.
+
+Interrupted saves use host-private SQLite recovery records containing paths and
+hashes, never audio or transcript contents. Vault-supplied JSON cannot authorize
+file deletion. A known current failed save rolls back only its own hash-matching
+audio. Ambiguous interrupted saves retain their files and report an error in
+Speech; **Unfinished audio recovery → Keep unfinished audio** explicitly clears
+only that recovery metadata and leaves files for you to review.
+
+Disabling removes worker and native runtime code, cancels transcription, and
+clears temporary audio/transcript views. Saved recordings, links, notes,
+accepted transcripts, and comment metadata remain. Public model weights can be
+reused after re-enabling; **Remove local model and engine** or the plugin's
+separate generated-data cleanup removes them. No model or runtime archive is
+included in the desktop installer.
+
+Try [Speech practice](<../plugins/Speech.md>).
+
+## Encrypted credential store
+
+Enable the optional store under **Security and privacy**, then choose
+**Credential store** in the activity rail or command palette. Its sidebar
+contains the credential table and entry forms. Enabling does not create a file.
+Create a separate master password of at least 12 characters, or unlock the
+existing store. There is no implicit OS-keychain remembrance or password
+recovery mechanism.
+
+All service names, usernames, URLs, entry notes, IDs, and secrets live inside
+`.denote/credentials.dncred` as authenticated ciphertext, even in an unencrypted
+vault. The store uses Argon2id (64 MiB, three iterations, one lane) and
+XChaCha20-Poly1305 with random salts/nonces and 4 KiB size buckets. The fixed
+filename, format, random header, and padded length remain observable.
+
+After unlock, search/sort entries and use **New entry**, **Edit**, and confirmed
+**Delete**. An edit keeps the old secret unless **Replace existing secret** is
+chosen. The eye button (**Show secret**) reveals explicitly and changes to
+**Hide secret** while visible; it masks the secret again after 15 seconds.
+Service names, usernames, masked secrets, and row actions share one table.
+The table scrolls horizontally in a narrow sidebar and is keyboard-focusable.
+When present, an HTTP(S) service link appears below its name and opens through
+Denote's external-link review. New approval is one-time: credential service
+addresses are not added to allowed domains. Links with embedded credentials,
+unsafe protocols, or invalid addresses are non-navigating and marked
+**Unsupported service link**. External-link failures never log the address.
+**Copy service**, **Copy username**, and **Copy secret** resolve the selected field natively;
+plugin workers and renderer copy responses never receive its value.
+Clipboard clearing is best effort, after the selected timeout, and preserves
+different newer clipboard contents.
+
+**Lock now**, the chosen inactivity timeout, focus loss, vault lock/switch,
+switching away from the credential sidebar, plugin removal, and exit clear the
+view and native key. Pending service-link approval is also cleared on lock. Background polling is
+not activity. Failed authentication exposes no entry metadata and never
+replaces an existing store with an apparently valid empty file.
+
+**Encrypted backup** copies only the independently encrypted container.
+**Import encrypted backup** validates it before replacement, requires its
+master password, and additionally reauthenticates an existing current store
+with explicit replacement confirmation. **Plaintext export** is separate:
+choose a new destination outside known vaults/application storage, supply the
+current master password again, and explicitly confirm exposure. Export approval
+is one-use and short-lived. The resulting private-permission file is
+intentionally plaintext and outside subsequent Denote cleanup.
+
+Back up the hidden credential file with the vault and retain its master
+password. For a damaged or unknown-format store, preserve the original file
+before restoring a verified encrypted backup; Denote will not guess, reset, or
+overwrite it to make an import succeed. Whole-vault decryption and plugin
+code/data/credential cleanup never decrypt or delete the independent store.
+
+Decrypted entries are not written to search indexes, note revisions, autosave
+snapshots, logs, or plaintext temporary files. This is not protection against a
+compromised OS/renderer, debugger, clipboard-history application, screen capture,
+swap, hibernation image, or externally generated crash dump. JavaScript and
+OS-owned copies cannot be reliably zeroized. Review the
+[security design](https://github.com/mbianchidev/denote/blob/main/docs/phase-6-security.md)
+before storing sensitive data.
+
+Try [Credential store practice](<../plugins/Credential store.md>).
 
 ## Time tracking
 

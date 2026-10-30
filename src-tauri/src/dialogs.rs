@@ -34,7 +34,6 @@ impl SelectionOptions {
         self
     }
 
-    #[cfg(debug_assertions)]
     pub(crate) fn with_filter(
         mut self,
         name: &'static str,

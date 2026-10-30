@@ -140,6 +140,14 @@ not publish edits or start autosave, including trailing spaces/tabs and LF, CRLF
 and CR input. Explicit Source whitespace removal must survive later Rich edits.
 Keep `mailto:` destinations and query separators unescaped while preserving
 required directive/entity escapes and literal backslashes in code.
+Rich-edit regressions also compare byte-exact per-line trailing spaces, tabs,
+hard-break spelling, line endings, and literal equals signs, including repeated
+edits, Source round trips, and explicit Source whitespace deletion. The browser
+authoring gate checks the saved native-IPC payload with optional authoring
+plugins enabled, not just the rendered text.
+Marker coverage includes underscore italics/strong text, adjacent and nested
+mixed delimiters, all three unordered-list markers, task lists, explicit Source
+marker changes, and real keyboard continuation of each bullet style.
 
 Production-browser responsiveness has a separate measured regression gate:
 
@@ -1001,7 +1009,7 @@ Phase 5 adds independent `denote.text-styling`, `denote.note-comments`, and
 `denote.presentations` packages targeting Denote 0.11.0. Text styling and comments
 remain 0.1.0. Presentations 0.1.1 adds standard `---` slide separators alongside
 `===`; its earlier prepared 0.1.0 ledger entry stays immutable.
-The feature branch retains the latest published application version, 0.10.0;
+Feature branches retain the latest published application version;
 the approved authoring capabilities also gate compatibility in local previews.
 Use `npm run dev:plugin -- <id>` and the isolated development application.
 Their shared additive contract is `packages/plugin-sdk/src/authoring.ts`;
@@ -1056,6 +1064,150 @@ Encrypted vaults receive only ciphertext after unlock.
 Commit reviewed source, SDK, docs, tests, and lockfile before pinning each new
 package for `v0.11.0`; commit catalog/ledger metadata separately. Do not repin
 unchanged existing versions or include archives in the installer.
+
+### Sensitive plugin development
+
+Phase 6 adds isolated `denote.speech` and `denote.credential-store` packages.
+Keep the application at its latest published version; plugin publication/pins
+for the intended release are separate. Read
+[the threat model and cryptographic design](phase-6-security.md) before changing
+these boundaries. The pre-implementation design review on 2026-10-27 reported
+no blocking vulnerabilities; that is not an independent production certification
+or a guarantee against OS-owned plaintext copies.
+
+```bash
+npx vitest run packages/plugin-sdk/src/sensitiveTools.test.ts \
+  plugins/speech/tests plugins/credential-store/tests \
+  src/components/CredentialStorePanel.test.tsx src/components/SpeechPanel.test.tsx \
+  src/lib/speech.test.ts src/lib/speechCapture.test.ts src/lib/speechShortcut.test.ts src/lib/shortcuts.test.ts \
+  src/components/AuthoringMarkdownEditor.test.tsx src/components/PresentationEditor.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
+npx tsc --noEmit -p tsconfig.benchmarks.json
+npm run build
+npm exec --no -- playwright test benchmarks/authoring.perf.ts benchmarks/sensitive.perf.ts
+```
+
+The browser journey uses real compiled workers, editor transactions, keyboard
+navigation, and the real capture worklet with Chromium's synthetic microphone
+and muted output. Only native IPC is mocked. It verifies portable WAV links,
+review-before-insertion, masked credentials, fresh export authentication, exact
+source preservation, and removal. Native tests independently verify ciphertext
+and tampering, private file permissions, locks/conflicts, whole-vault sweeps,
+recovery ownership, and preservation of notes/decks/comments/audio/credentials.
+Canary scans use invented values and include generated database/temp files.
+The sensitive sidebar journeys additionally cover both rail entries,
+Control-Space start/stop in Rich without a pre-positioned caret, exact Rich
+selection replacement, microphone-track teardown when switching panels, and
+credential table create/copy/link/delete actions. Service-link review must not
+persist a credential domain. Component regressions cover pending model checks,
+late permission/flush results, source-change append behavior, and refusal to
+record in read mode or after another dialog takes over.
+
+Windows CI additionally provisions a disposable, unprivileged synthetic account
+and an explicitly readable fixture under Public Documents. A readable control
+file proves the second identity can access that location; the private export
+must reject it while empty, during writing, and after close. Owner read handles
+are also denied until the write handle closes. The dedicated native account
+test is explicitly ignored in ordinary local runs and invoked by CI with its
+fixture environment. Account, files, and environment values are removed in
+`finally`; desktop builds never provision accounts. Private transfers fail
+closed when the filesystem cannot enforce private mode bits or persistent ACLs.
+
+Run actual model inference only with explicit download approval:
+
+```bash
+npm run test:speech-model -- --approve-download --engine-dir /absolute/private/model-cache
+```
+
+The runner generates mock speech locally using macOS Samantha, Windows
+System.Speech, or Linux `espeak-ng`; it never opens a microphone or reads notes.
+It normalizes a private temporary WAV, invokes the real native downloader and
+isolated helper, requires recognition of the generated word `synthetic` plus
+word timing data, and removes its generated audio afterward. Omit `--engine-dir`
+to remove the model/runtime cache too. `--executable <current-build>` reuses a
+freshly built **speech-helper** binary, not the desktop executable; otherwise
+the runner prepares a debug helper with two Cargo workers. No test corpus or
+model weight is committed.
+
+CI reuses its existing macOS/Windows/Linux matrix and runs this approximately
+750 MB-per-platform smoke only when native speech, its shared build inputs, or
+the workflow changes; incomplete/manual selection runs it conservatively.
+Windows reuses its packaged release helper. Linux installs the offline
+generator only for this gate. Other changes retain normal checks without these
+downloads. Existing triggers, required checks, fail-fast, benchmark isolation,
+runtime pins, and release consumers are unchanged. Extra Linux/Windows runtime
+cost has not been measured locally; the approved macOS download/inference
+smoke completed successfully on 2026-10-27.
+
+`src-tauri/Info.plist` declares the microphone purpose, and
+`src-tauri/Entitlements.plist` grants only audio-input access to a signed main
+app. The CSP adds only same-origin/blob media, not remote audio connections.
+The native engine uses verified platform archives and `libloading`; Windows ZIP support uses maintained
+`zip` 9 with only deflate enabled, not the updater's disabled legacy ZIP feature.
+No Tauri/Wry family member changes. A platform unable to load its optional
+library reports unavailable inference rather than weakening main-app runtime
+security.
+
+`npm run prepare:speech-helper -- --debug` builds the separate
+`denote-speech-worker` workspace package. Tauri's development/build hooks run
+this automatically with the matching target and profile. Generated helper
+binaries remain in ignored `src-tauri/resources/speech/`, never Git or a plugin
+archive. Windows/Linux bundle the helper as a host resource. macOS embeds its
+independently signed app under `Contents/Helpers/`; only this helper has the
+library-validation exception needed for NVIDIA's pinned libraries, and it has
+no microphone entitlement. The main/credential process keeps library validation.
+This is necessary: real inference failed in a hardened main executable without
+that exception, despite succeeding in an unsigned build.
+
+The helper's small Tauri bundle config reuses the configured Developer ID
+identity or certificate import. Local builds use ad-hoc hardened signing.
+The helper is not notarized separately, so its nested-code build emits Tauri's
+expected missing-notarization-credentials warning. Notarize the containing
+application once with the normal release credentials. Never fix a model-load
+failure by granting the library-validation exception to the main app.
+
+The helper's working directory is its reverified runtime library directory,
+not the model cache or a vault. The pinned GGML loader searches the executable
+directory and current directory for backend libraries; changing `PATH` or
+trusting an arbitrary DLL directory is not a substitute. Application failure
+messages use fixed stages and numeric native status codes. The desktop reports
+the child exit status and always discards engine stderr. Only Rust test builds
+inherit helper stderr for the explicitly generated, synthetic-audio platform
+smoke.
+The verified library stays loaded until its bounded one-shot helper exits.
+The pinned [GGML backend
+registry](https://github.com/ggml-org/llama.cpp/blob/bd4f514db14d87fded667787a7a963bfbaa98e89/ggml/src/ggml-backend-reg.cpp)
+explicitly warns that backend code cannot be safely unloaded while backend
+threads/resources remain. Release recognizer/result handles normally, but do
+not call `FreeLibrary`/`dlclose` on that code mid-process. The OS reclaims it on
+helper exit, including cancellation.
+If the Windows synthetic smoke fails, the runner compares the same generated
+WAV with the already verified NVIDIA CLI in offline and streaming mode, using
+explicit local model paths. It prints only selected crash-event module/code/
+offset fields and preserves the original failing status. These test-only
+reference probes neither enable a production CLI fallback nor download another
+model or capture a microphone.
+
+The SQLite `pending_speech_attachments` table contains only native operation
+identities, paths, and hashes, never audio or transcript text. Vault-supplied
+JSON is not recovery authority. Interrupted uncertain saves keep files; the
+explicit **Keep unfinished audio** action clears only their derived recovery
+records. The independent credential container never enters this table.
+
+Welcome `plugins-v7` adds only `Speech.md` and `Credential store.md`. Earlier
+markers, deleted applied samples, existing bytes, encryption deferral, and
+explicit opt-in remain unchanged. For an unpublished plugin handoff, follow
+**Preview an unpublished plugin on macOS** below and stage each archive with
+`npm run dev:plugin -- denote.speech --once` and
+`npm run dev:plugin -- denote.credential-store --once`.
+Do not add local downloads to the production runtime or include model/plugin
+archives in either installer.
+
+Device-dependent microphone permission, installed voices, screen-reader use,
+clipboard history, sleep/resume, and configured code-signing behavior still need
+actual platform sign-off before release. Browser mocks do not establish those
+guarantees. Record missing or unsupported capabilities instead of marking an
+untested platform successful.
 
 ## Frontend bundle limits
 
@@ -1196,7 +1348,11 @@ desktop builds do not acquire a macOS or Windows GTK build requirement. Its
 `target` tree is excluded so staged bundled Git source remains an independent
 Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
 package automatically, and an explicit root member overrides descendant
-exclusions.
+exclusions. The separate `speech-worker` member is built explicitly by its
+preparation hook, not added to the default application test/build selection.
+The source-aware audit permits only its exact reviewed local `0.1.0` manifest
+alongside the application and named backports; it rejects a helper from a
+registry, Git URL, different path/version, or duplicate package.
 
 The workspace has one authoritative `src-tauri/Cargo.lock`. Redundant lockfiles
 from the original Tauri plugin archives are omitted because Cargo ignores them
@@ -1393,16 +1549,21 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-26**.
+Last vendored-library check: **2026-10-30**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the slide-separator, playback-control, and grey comment-count follow-ups using the
+the literal-symbol and trailing-space preservation fix using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
+The complete release-note, tracker, and RustSec check found the same versions,
+compatibility constraints, and no compatible replacement as the previous check.
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream
 fixes and backport requests, and each linked RustSec advisory were checked
-again. The API returned HTTP 403, so published versions were verified through
-the official registry index instead; compatible and latest stable versions
-below are unchanged. The three plugins also publish 3.0.0-alpha.3,
+again. Published versions and dependency requirements were read directly from
+the official sparse registry index. Compatible versions are unchanged; current
+stable releases are listed below. RustSec's package pages have no direct entries
+for GLib macros, URLPattern, or the three Tauri plugins, so their affected
+macro-error, Unicode, and D-Bus dependencies were checked explicitly against
+the advisories below. The three plugins also publish 3.0.0-alpha.3,
 which requires Tauri 3 and still uses zbus 5, so it is not a compatible
 replacement. No compatible
 published replacement removes a local backport. The open
@@ -1450,13 +1611,13 @@ remain applicable to the original dependency graphs. Neither withdrawal nor
 a newer incompatible release removes the need for these local replacements.
 
 Published
-[notification 2.7.0](https://crates.io/crates/tauri-plugin-notification/2.7.0),
+[notification 2.8.0](https://crates.io/crates/tauri-plugin-notification/2.8.0),
 [opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
-[single-instance 2.5.4](https://crates.io/crates/tauri-plugin-single-instance/2.5.4)
+[single-instance 2.5.5](https://crates.io/crates/tauri-plugin-single-instance/2.5.5)
 require Tauri 2.12 and still use zbus 5. The
-[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.7.0),
+[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.0),
 [opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
-and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.4)
+and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.5)
 do not provide compatible releases removing the D-Bus backports. The
 [upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
 is open; no compatible published plugin removes the local adapters.
@@ -1610,8 +1771,8 @@ published. To test a staged plugin without publishing or changing the production
 downloader, build the separate development application:
 
 ```bash
-CI=true NODE_ENV=development CARGO_BUILD_JOBS=2 \
-  npm run tauri build -- --debug --config src-tauri/tauri.dev.conf.json --bundles dmg
+CI=true APPLE_SIGNING_IDENTITY=- NODE_ENV=development CARGO_BUILD_JOBS=2 \
+  npm run tauri build -- --debug --config src-tauri/tauri.dev.conf.json --bundles app,dmg
 npm run dev:plugin -- denote.calendar --once
 ```
 
@@ -1624,6 +1785,29 @@ Both development flags matter: `NODE_ENV=development` retains the frontend's
 local-archive control, while `--debug` includes the native development-only
 adapter. This bundle is a local preview, not a production release artifact.
 The plugin archive remains separate from either DMG.
+
+The explicit `-` identity signs the entire local app ad hoc, binds its
+Info.plist/resources, applies the microphone entitlement, and enables the
+hardened runtime. Signing the helper alone is insufficient: without a main-app
+identity, the CLI can leave only the executable's linker signature, with no
+resource seal or microphone entitlement. Verify the retained `.app` with
+`codesign --verify --deep --strict`; the main app must have audio-input but
+never disable-library-validation, while the helper has only the latter.
+Ad-hoc signing is not notarization; use the configured Developer ID workflow
+for public release.
+
+To repackage already built matching-profile binaries without recompiling, stage
+the helper for that same profile, then run:
+`CI=true APPLE_SIGNING_IDENTITY=- npm run tauri -- bundle --debug --config src-tauri/tauri.dev.conf.json --bundles app dmg`.
+Omit `--debug` and the development config for a release-profile local bundle.
+
+Validate sensitive browser journeys against this mode too:
+`NODE_ENV=development npm run build`, then
+`npm exec --no -- playwright test benchmarks/sensitive.perf.ts`.
+Development StrictMode replays effect setup/cleanup. An explicit first dictation
+request must survive that harmless replay without duplicating microphone access;
+actual cancellation, scope changes, and unmount still fence late results and
+release resources.
 
 ### Provision signed application updates
 

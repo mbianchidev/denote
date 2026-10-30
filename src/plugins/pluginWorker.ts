@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type {
+  PluginSensitiveToolRegistration,
   PluginAuthoringProvider,
   PluginCalendarProvider,
   DenotePlugin,
@@ -54,6 +55,8 @@ import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
 import { createGitCapability } from "./gitCapability";
 import {
   AUTHORING_FEATURES,
+  SENSITIVE_TOOL_FEATURES,
+  isPluginSensitiveToolRegistration,
   isPluginAuthoringRegistration,
   isPluginAuthoringRequest,
   isPluginAuthoringResultFor,
@@ -108,6 +111,7 @@ const CANCEL_SOURCE_CONTROL_ACTION = "cancel-operation";
 
 const commandHandlers = new Map<string, PluginCommand["run"]>();
 const authoringProviders = new Map<string, PluginAuthoringProvider>();
+const sensitiveTools = new Map<string, PluginSensitiveToolRegistration>();
 const codeHandlers = new Map<string, PluginCodeProvider["run"]>();
 const codeAbortControllers = new Map<string, AbortController>();
 const sourceControlHandlers = new Map<
@@ -659,6 +663,22 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (SENSITIVE_TOOL_FEATURES.some((feature) => permissions.has(feature))) {
+    capabilities.sensitiveTools = {
+      register(tool) {
+        if (cleaned || !isPluginSensitiveToolRegistration(tool) ||
+            !permissions.has(tool.feature) || sensitiveTools.size !== 0) {
+          throw new Error("Invalid, unauthorized, or duplicate sensitive tool registration.");
+        }
+        validateContributionId(tool.id, "sensitive tool");
+        sensitiveTools.set(tool.id, tool);
+        send({ type: "register-sensitive-tool", ...tool });
+        return disposable(() => {
+          if (sensitiveTools.delete(tool.id)) send({ type: "unregister-sensitive-tool", id: tool.id });
+        });
+      },
+    };
+  }
   if (AUTHORING_FEATURES.some((feature) => permissions.has(feature))) {
     capabilities.authoring = {
       register(provider) {
@@ -1025,6 +1045,7 @@ async function cleanup(): Promise<unknown[]> {
   taskListQueryHandlers.clear();
   taskListToggleHandlers.clear();
   authoringProviders.clear();
+  sensitiveTools.clear();
   calendarHandlers.clear();
   timeTrackingHandlers.clear();
   clockHandlers.clear();

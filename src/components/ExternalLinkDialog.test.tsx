@@ -4,6 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 import { ExternalLinkDialog } from "./ExternalLinkDialog";
 
 describe("ExternalLinkDialog", () => {
+  it("uses a one-time credential link confirmation without persistent domain choices", async () => {
+    const user = userEvent.setup();
+    const onAllow = vi.fn();
+    render(<ExternalLinkDialog open kind="domain" subject="synthetic.invalid" url="https://synthetic.invalid/"
+      oneTime onAllow={onAllow} onAllowAll={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByRole("dialog", { name: "Open service link?" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Allow all external domains" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open link" }));
+    expect(onAllow).toHaveBeenCalledOnce();
+  });
+
   it("offers exact-domain and wildcard trust choices", async () => {
     const user = userEvent.setup();
     const onAllowDomain = vi.fn();

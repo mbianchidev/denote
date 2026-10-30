@@ -1,4 +1,5 @@
 import type { PluginAuthoringCapability } from "./authoring";
+import type { PluginSensitiveToolsCapability } from "./sensitiveTools";
 
 export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const PLUGIN_API_VERSION = 1 as const;
@@ -29,6 +30,8 @@ export const PLUGIN_CAPABILITIES = [
   "text-styling",
   "note-comments",
   "presentation",
+  "speech",
+  "credential-store",
   "note-graph",
   "calendar",
   "reminders",
@@ -2122,6 +2125,7 @@ export interface PluginProcessCapability {
 }
 
 export interface PluginCapabilities {
+  sensitiveTools?: PluginSensitiveToolsCapability;
   authoring?: PluginAuthoringCapability;
   commands?: PluginCommandCapability;
   sidebar?: PluginSidebarCapability;

@@ -1,6 +1,7 @@
 import { isolateHistory } from "@codemirror/commands";
 import { Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import { createPortal } from "react-dom";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AUTHORING_COLORS, isPluginAuthoringResultFor, textStyleDelimiter, verifiedAuthoringEdit,
@@ -17,9 +18,22 @@ import type { EnterNativeFullscreen } from "../lib/nativeFullscreen";
 import { AuthoringDialog } from "./AuthoringDialog";
 import { NoteCommentsPanel } from "./NoteCommentsPanel";
 import { PresentationEditor } from "./PresentationEditor";
+import { SpeechPanel } from "./SpeechPanel";
 import "./AdvancedAuthoring.css";
 
 export interface AdvancedAuthoringProps {
+  speech?: {
+    pluginId: string;
+    workspaceScope: string;
+    saveVoiceNote: (wav: Uint8Array, from: number, to: number) => Promise<void>;
+    container: HTMLElement | null;
+    open: boolean;
+    suspended: boolean;
+    shortcutLabel: string;
+    onShortcutChange: (value: string) => string;
+    onOpen: () => void;
+    onClose: () => void;
+  };
   path: string;
   source: string;
   readOnly: boolean;
@@ -29,6 +43,7 @@ export interface AdvancedAuthoringProps {
   displaySettings: EditorDisplaySettings;
   nativeFullscreen?: EnterNativeFullscreen;
   registerCommentsAction?: (open: () => void) => () => void;
+  registerSpeechAction?: (open: (dictation: boolean) => void) => () => void;
   request: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
   loadComments: (pluginId: string) => Promise<NoteCommentsSnapshot>;
   saveComments: (pluginId: string, hash: string, document: NoteCommentsDocument, source: string) => Promise<NoteCommentsSnapshot>;
@@ -43,12 +58,14 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
   callbacks.current = props;
   const root = useRef<HTMLDivElement>(null);
   const [dialog, setDialog] = useState<"styles" | "comments" | null>(null);
+  const [speechSelection, setSpeechSelection] = useState<AuthoringSelection | null>(null);
+  const [dictationRequest, setDictationRequest] = useState(0);
   const [presentation, setPresentation] = useState(false);
   const [selection, setSelection] = useState<AuthoringSelection | null>(null);
   const [styles, setStyles] = useState<{ source: string; spans: PluginTextStyle[] } | null>(null);
   const styleSnapshot = useRef(styles);
   styleSnapshot.current = styles;
-  const captures = useRef(new Set<() => AuthoringSelection | null>());
+  const captures = useRef(new Set<(allowCollapsed?: boolean) => AuthoringSelection | null>());
   const editHandlers = useRef(new Set<(edit: PluginSourceEdit, next: string) => boolean>());
   const sourceView = useRef<EditorView | null>(null);
   const [navigation, setNavigation] = useState<EditorSearchNavigation>();
@@ -106,7 +123,7 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
   }, [source, stylingKey]);
   useEffect(() => { if (!comments && dialog === "comments") setDialog(null); }, [comments, dialog]);
   useEffect(() => { if (!slides) setPresentation(false); }, [slides]);
-  const capture = (): AuthoringSelection | null => {
+  const capture = (allowCollapsed = false): AuthoringSelection | null => {
     const view = sourceView.current;
     let visible = true;
     for (let element: HTMLElement | null = view?.dom ?? null; element && element !== root.current; element = element.parentElement) {
@@ -117,7 +134,7 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
       const displayed = doc.toString();
       const current = callbacks.current.source;
       const range = markdownSourceSelection(current, displayed, selection.main.from, selection.main.to);
-      if (range && range.from !== range.to) return {
+      if (range && (range.from !== range.to || allowCollapsed)) return {
         source: current, ...range, restore: () => { if (view.dom.isConnected) view.focus(); },
         apply: (edit, next) => {
           if (!view.dom.isConnected || view.state.doc !== doc || view.state.readOnly ||
@@ -134,12 +151,18 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
       };
     }
     for (const capture of [...captures.current].reverse()) {
-      const selected = capture();
+      const selected = capture(allowCollapsed);
       if (selected) return selected;
     }
     return null;
   };
-  const open = (kind: "styles" | "comments") => {
+  const open = (kind: "styles" | "comments" | "speech", dictation = false) => {
+    if (kind === "speech") {
+      setSpeechSelection(capture(true));
+      if (dictation) setDictationRequest((current) => current + 1);
+      callbacks.current.speech?.onOpen();
+      return;
+    }
     setSelection(capture());
     setError("");
     setDialog(kind);
@@ -151,6 +174,13 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
     if (!comments) return;
     return callbacks.current.registerCommentsAction?.(() => openRef.current("comments"));
   }, [comments?.pluginId, comments?.id, path]);
+  useEffect(() => {
+    if (!props.speech) return;
+    return callbacks.current.registerSpeechAction?.((dictation) => openRef.current("speech", dictation));
+  }, [props.speech?.pluginId, props.speech?.workspaceScope, path]);
+  useEffect(() => {
+    if (!active || !props.speech?.open) setDictationRequest(0);
+  }, [active, props.speech?.open]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (!callbacks.current.active || event.isComposing || event.getModifierState("AltGraph") ||
@@ -234,7 +264,7 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
   };
   return <div ref={root} className="advanced-authoring" onFocusCapture={(event) => {
     const target = event.target;
-    if (!(target instanceof HTMLElement) || target.closest(".authoring-dialog")) return;
+    if (!(target instanceof HTMLElement) || target.closest(".authoring-dialog, .sensitive-tool-panel")) return;
     const editor = target.closest<HTMLElement>(".cm-editor");
     if (editor) sourceView.current = EditorView.findFromDOM(editor);
     else if (target.closest('[contenteditable="true"]')) sourceView.current = null;
@@ -257,6 +287,8 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
         {slides ? <button type="button" className="secondary-button" title="Open as presentation (Command/Control-Alt-P)"
           data-authoring-action="presentation"
           onClick={() => setPresentation(true)}>Open as presentation</button> : null}
+        {props.speech ? <button type="button" className="secondary-button" data-authoring-action="speech"
+          onPointerDown={(event) => event.preventDefault()} onClick={() => open("speech")}>Speech</button> : null}
       </div>
       {error && !dialog ? <p role="alert" className="authoring-error">{error}</p> : null}
       {styleNotice ? <p role="status" className="authoring-muted">{styleNotice}</p> : null}
@@ -264,6 +296,27 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
         {renderEditor(binding, navigation)}
       </div>}
     </>}
+    {active && props.speech?.open && props.speech.container ? createPortal(<SpeechPanel pluginId={props.speech.pluginId} workspaceScope={props.speech.workspaceScope}
+      path={path} source={source} selection={speechSelection} captureSelection={() => capture(true)}
+      dictationRequest={dictationRequest} suspended={props.speech.suspended || dialog !== null}
+      shortcutLabel={props.speech.shortcutLabel} onShortcutChange={props.speech.onShortcutChange}
+      readOnly={readOnly} onClose={() => {
+        callbacks.current.speech?.onClose();
+        speechSelection?.restore();
+      }}
+      onSaveVoiceNote={props.speech.saveVoiceNote}
+      onInsert={(text, from, to) => {
+        if (source !== callbacks.current.source || callbacks.current.readOnly ||
+            !Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < from || to > source.length) {
+          throw new Error("The note changed before insertion. Your reviewed transcript is still available.");
+        }
+        const edit = { from, to, text };
+        const next = source.slice(0, edit.from) + text + source.slice(edit.to);
+        binding.sourcePreparation.current?.(next);
+        if (!applySourceEdit(edit, next) && ![...editHandlers.current].some((apply) => apply(edit, next))) {
+          onChange(next); setEditorRevision((value) => value + 1);
+        }
+      }} />, props.speech.container) : null}
     {dialog === "comments" && comments ? <NoteCommentsPanel path={path} source={source} readOnly={readOnly}
       selection={selection} request={(request) => run(comments, request)}
       load={() => callbacks.current.loadComments(comments.pluginId)}

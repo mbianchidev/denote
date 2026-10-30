@@ -9,11 +9,13 @@ mod gitignore;
 mod models;
 mod paths;
 mod plugins;
+mod sensitive;
 mod updater;
 mod vault;
 
 use db::AppState;
 pub use plugins::git::gpg_signer::run_gpg_signer_if_requested;
+pub use sensitive::speech_helper::run_if_requested as run_speech_helper_if_requested;
 use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
@@ -253,6 +255,19 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Focused(false)) {
+                let generation = sensitive::invalidate_credentials();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if sensitive::lock_credentials_before(generation).is_err() {
+                        eprintln!("Unable to clear the credential session after focus loss.");
+                    }
+                });
+                if window.emit("denote://sensitive-locked", ()).is_err() {
+                    eprintln!("Unable to announce credential session lock.");
+                }
+            }
+        })
         .on_page_load(|webview, payload| {
             if webview.label() == "main"
                 && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
@@ -298,6 +313,18 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            sensitive::credentials::credential_store,
+            sensitive::credentials::credential_transfer,
+            sensitive::stop_sensitive_tools,
+            sensitive::speech_engine::speech_engine_status,
+            sensitive::speech_engine::install_speech_engine,
+            sensitive::speech_engine::cancel_speech_operation,
+            sensitive::speech_engine::remove_speech_engine,
+            sensitive::speech_engine::transcribe_speech,
+            sensitive::audio::save_voice_note,
+            sensitive::audio::read_speech_audio,
+            sensitive::audio::keep_unfinished_speech_audio,
+            sensitive::audio::export_speech_audio,
             commands::get_last_vault,
             commands::list_known_vaults,
             commands::list_known_vault_files,
@@ -419,6 +446,9 @@ pub fn run() {
         .expect("error while building Denote")
         .run(|app, event| match event {
             RunEvent::Exit => {
+                if sensitive::revoke_all().is_err() {
+                    eprintln!("Unable to finish sensitive-tool cleanup.");
+                }
                 app.state::<plugins::PluginManager>()
                     .cancel_all_git_operations();
                 app.state::<plugins::PluginManager>()

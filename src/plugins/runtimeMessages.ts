@@ -1,4 +1,5 @@
 import type {
+  PluginSensitiveToolRegistration,
   PluginAuthoringRegistration,
   PluginAuthoringRequest,
   PluginAuthoringResult,
@@ -42,6 +43,7 @@ import type {
   PluginClockRequest,
 } from "@denote/plugin-sdk";
 import {
+  isPluginSensitiveToolRegistration,
   isPluginAuthoringRegistration,
   isPluginAuthoringRequest,
   isPluginAuthoringResult,
@@ -305,6 +307,8 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
+  | ({ type: "register-sensitive-tool" } & PluginSensitiveToolRegistration)
+  | { type: "unregister-sensitive-tool"; id: string }
   | ({ type: "register-authoring" } & PluginAuthoringRegistration)
   | { type: "unregister-authoring"; id: string }
   | { type: "authoring-result"; requestId: string; result?: PluginAuthoringResult; error?: string }
@@ -503,6 +507,10 @@ export function isPluginRuntimeMessage(
     return false;
   }
   switch (value.type) {
+    case "register-sensitive-tool":
+      return isPluginSensitiveToolRegistration(value);
+    case "unregister-sensitive-tool":
+      return typeof value.id === "string" && Object.keys(value).every((key) => key === "type" || key === "id");
     case "register-authoring":
       return isPluginAuthoringRegistration(value);
     case "unregister-authoring":

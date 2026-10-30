@@ -8,6 +8,28 @@ describe("ActivityRail", () => {
     localStorage.clear();
   });
 
+  it("opens both sensitive host sidebars by keyboard without granting worker sidebar access", async () => {
+    const user = userEvent.setup();
+    const onPluginViewChange = vi.fn();
+    const tools = [
+      { pluginId: "denote.speech", id: "denote.speech.local", title: "Speech", feature: "speech" as const },
+      { pluginId: "denote.credential-store", id: "denote.credential-store.entries", title: "Credential store", feature: "credential-store" as const },
+    ];
+    const view = render(<ActivityRail calendars={[]} activeCalendar={null} onCalendarChange={vi.fn()}
+      activeView="files" activePluginView={tools[1].id} activeSourceControlProvider={null}
+      activeNoteGraph={null} activeTaskList={null} pluginViews={[]} sourceControlProviders={[]}
+      noteGraphs={[]} taskLists={[]} sensitiveTools={tools} theme="dark" onViewChange={vi.fn()}
+      onPluginViewChange={onPluginViewChange} onSourceControlProviderChange={vi.fn()}
+      onNoteGraphChange={vi.fn()} onTaskListChange={vi.fn()} onAbout={vi.fn()} onThemeToggle={vi.fn()} />);
+    const speech = screen.getByRole("button", { name: "Speech" });
+    expect(screen.getByRole("button", { name: "Credential store" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute("aria-pressed", "false");
+    speech.focus();
+    await user.keyboard("{Enter}");
+    expect(onPluginViewChange).toHaveBeenCalledWith(tools[0].id);
+    view.unmount();
+  });
+
   it("shows an accessible neutral comment badge and opens comments by keyboard", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();

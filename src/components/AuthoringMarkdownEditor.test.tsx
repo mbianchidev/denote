@@ -15,7 +15,7 @@ const request = async (_plugin: string, _id: string, request: PluginAuthoringReq
   return styleRequest(request);
 };
 
-function Harness({ initial = original, changed }: { initial?: string; changed: (source: string) => void }) {
+function Harness({ initial = original, changed, audio = false }: { initial?: string; changed: (source: string) => void; audio?: boolean }) {
   const [source, setSource] = useState(initial);
   const update = (next: string) => { changed(next); setSource(next); };
   return <AdvancedAuthoring path="Example.md" source={source} readOnly={false} active providers={[provider]}
@@ -24,11 +24,44 @@ function Harness({ initial = original, changed }: { initial?: string; changed: (
     renderPreview={() => null} onChange={update}
     renderEditor={(binding, navigation) => <MarkdownEditor notePath="Example.md" markdown={source} lineEnding="lf"
       displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} preferredViewMode="rich-text" readOnly={false} authoring={binding}
+      audio={audio ? { read: async () => { throw new Error("Audio must not load during rendering."); }, export: async () => false } : undefined}
       searchNavigation={navigation} onChange={update} onError={vi.fn()} onViewModeChange={() => {}}
       onLinkOpen={() => {}} onImageUpload={vi.fn()} />} />;
 }
 
 describe("real Markdown authoring integration", () => {
+  it("round-trips extended Markdown, audio links, references and whitespace without loading media or changing source", async () => {
+    const user = userEvent.setup();
+    const changed = vi.fn();
+    const source = [
+      "---", "custom: keep this exact metadata", `sample: "[Voice](assets/Synthetic%20voice.wav 'Keep this title')"`, "---", "",
+      "# Synthetic note", "", "=purple=An &amp; B=purple=", "",
+      "[Voice](<assets/Synthetic%20voice.wav> 'Keep this title') and [Second](assets/second.ogg).", "",
+      "[Reference][invented]", "", "[invented]: <https://example.test/a?x=1&y=2> 'Exact definition'", "",
+      "```text", "=red=Literal code=red=", "```", "", "After.  ", "",
+    ].join("\n");
+    const view = render(<Harness initial={source} changed={changed} audio />);
+    expect(await screen.findByText("An & B", { exact: true })).toHaveClass("denote-text-style");
+    expect(await screen.findByRole("group", { name: "Audio: Voice" })).toBeVisible();
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    await waitFor(() => expect([...view.container.querySelectorAll(".cm-content")]
+      .some((editor) => editor.textContent?.includes("Synthetic%20voice.wav"))).toBe(true));
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    expect(await screen.findByRole("group", { name: "Audio: Voice" })).toBeVisible();
+    expect(changed).not.toHaveBeenCalled();
+    const root = screen.getByRole("textbox", { name: "editable markdown" });
+    const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+    act(() => editor.update(() => {
+      const after = $getRoot().getAllTextNodes().find((node) => node.getTextContent().startsWith("After."));
+      if (!after) throw new Error("Missing synthetic editable paragraph.");
+      after.select(6, 6);
+      const selection = $getSelection();
+      if (!$isRangeSelection(selection)) throw new Error("Missing synthetic caret.");
+      selection.insertText("!");
+    }, { discrete: true }));
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith(source.replace("After.  ", "After.!  ")));
+  });
+
   it("renders decoded text but preserves the original entity spelling during an unrelated edit", async () => {
     const changed = vi.fn();
     const source = "=red=A &amp; B=red=\n\nAfter.";

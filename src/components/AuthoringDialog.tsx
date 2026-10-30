@@ -1,8 +1,8 @@
 import { X } from "lucide-react";
 import { useEffect, useId, useRef, type ReactNode } from "react";
 
-export function AuthoringDialog({ title, onClose, children }: {
-  title: string; onClose: () => void; children: ReactNode;
+export function AuthoringDialog({ title, onClose, onEscape, children }: {
+  title: string; onClose: () => void; onEscape?: () => void; children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -18,7 +18,25 @@ export function AuthoringDialog({ title, onClose, children }: {
     };
   }, []);
   return <dialog ref={ref} className="app-dialog authoring-dialog" aria-labelledby={id}
-    onCancel={(event) => { event.preventDefault(); close.current(); }}>
+    onKeyDownCapture={(event) => {
+      if (event.key !== "Tab") return;
+      const controls = [...event.currentTarget.querySelectorAll<HTMLElement>(
+        "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex='0']",
+      )].filter((element) => {
+        if (element.tabIndex < 0 || element.getAttribute("aria-disabled") === "true" ||
+            element.closest("[hidden], [inert]") || element.getClientRects().length === 0) return false;
+        for (let details = element.closest("details:not([open])"); details; details = details.parentElement?.closest("details:not([open])") ?? null) {
+          if (!details.querySelector(":scope > summary")?.contains(element)) return false;
+        }
+        return true;
+      });
+      const first = controls[0];
+      const last = controls[controls.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }}
+    onCancel={(event) => { event.preventDefault(); if (onEscape) onEscape(); else close.current(); }}>
     <header className="dialog-header">
       <h2 id={id}>{title}</h2>
       <button type="button" className="icon-button" aria-label={`Close ${title.toLowerCase()}`} onClick={onClose}>

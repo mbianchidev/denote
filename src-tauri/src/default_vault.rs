@@ -18,6 +18,7 @@ const PLUGIN_EXAMPLE_V3_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v3";
 const PLUGIN_EXAMPLE_V4_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v4";
 const PLUGIN_EXAMPLE_V5_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v5";
 const PLUGIN_EXAMPLE_V6_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v6";
+const PLUGIN_EXAMPLE_V7_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v7";
 const PLUGIN_EXAMPLE_V1_PATH: &str = "plugins/Kanban board.kanban.md";
 const PLUGIN_EXAMPLE_V2_PATHS: &[&str] = &[
     "plugins/README.md",
@@ -41,7 +42,16 @@ const PLUGIN_EXAMPLE_V6_PATHS: &[&str] = &[
     "plugins/Note comments.md",
     "plugins/Presentation.md",
 ];
+const PLUGIN_EXAMPLE_V7_PATHS: &[&str] = &["plugins/Speech.md", "plugins/Credential store.md"];
 const SEED_FILES: &[(&str, &[u8])] = &[
+    (
+        "plugins/Speech.md",
+        include_bytes!("../../docs/user-guide/plugins/Speech.md"),
+    ),
+    (
+        "plugins/Credential store.md",
+        include_bytes!("../../docs/user-guide/plugins/Credential store.md"),
+    ),
     (
         "plugins/Text styling.md",
         include_bytes!("../../docs/user-guide/plugins/Text styling.md"),
@@ -689,6 +699,13 @@ fn add_missing_plugin_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -
         PLUGIN_EXAMPLE_V6_FIXTURE_MARKER,
         |path| PLUGIN_EXAMPLE_V6_PATHS.contains(&path),
         "plugin example v6",
+    )?;
+    add_missing_seed_collection_once(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V7_FIXTURE_MARKER,
+        |path| PLUGIN_EXAMPLE_V7_PATHS.contains(&path),
+        "plugin example v7",
     )
 }
 
@@ -1079,6 +1096,8 @@ mod tests {
             ("denote.text-styling", &["plugins/Text styling.md"]),
             ("denote.note-comments", &["plugins/Note comments.md"]),
             ("denote.presentations", &["plugins/Presentation.md"]),
+            ("denote.speech", &["plugins/Speech.md"]),
+            ("denote.credential-store", &["plugins/Credential store.md"]),
             (
                 "denote.code-intelligence",
                 &["plugins/Code intelligence.md"],
@@ -1127,6 +1146,7 @@ mod tests {
                 - PLUGIN_EXAMPLE_V4_PATHS.len()
                 - PLUGIN_EXAMPLE_V5_PATHS.len()
                 - PLUGIN_EXAMPLE_V6_PATHS.len()
+                - PLUGIN_EXAMPLE_V7_PATHS.len()
         );
         assert_eq!(
             PLUGIN_EXAMPLE_V2_PATHS
@@ -1141,6 +1161,7 @@ mod tests {
                         && !PLUGIN_EXAMPLE_V4_PATHS.contains(path)
                         && !PLUGIN_EXAMPLE_V5_PATHS.contains(path)
                         && !PLUGIN_EXAMPLE_V6_PATHS.contains(path)
+                        && !PLUGIN_EXAMPLE_V7_PATHS.contains(path)
                 })
                 .collect::<BTreeSet<_>>()
         );
@@ -1348,6 +1369,43 @@ mod tests {
             .expect("delete applied example");
         add_missing_plugin_examples_once(&vault, None).expect("repeat");
         assert!(!vault.join("plugins/Code intelligence.md").exists());
+    }
+
+    #[test]
+    fn plugin_v7_adds_only_sensitive_examples_without_overwriting_or_recreating_applied_samples() {
+        let directory = tempdir().unwrap();
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir_all(vault.join(".denote/fixtures")).unwrap();
+        fs::create_dir(vault.join("plugins")).unwrap();
+        for marker in [
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V5_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V6_FIXTURE_MARKER,
+        ] {
+            fs::write(vault.join(marker), b"Retain this synthetic marker\n").unwrap();
+        }
+        fs::write(
+            vault.join("plugins/Speech.md"),
+            b"Edited synthetic speech example\n",
+        )
+        .unwrap();
+        add_missing_plugin_examples_once(&vault, None).unwrap();
+        assert_eq!(
+            fs::read(vault.join("plugins/Speech.md")).unwrap(),
+            b"Edited synthetic speech example\n"
+        );
+        assert!(vault.join("plugins/Credential store.md").is_file());
+        assert!(!vault.join("plugins/Presentation.md").exists());
+        fs::remove_file(vault.join("plugins/Credential store.md")).unwrap();
+        add_missing_plugin_examples_once(&vault, None).unwrap();
+        assert!(!vault.join("plugins/Credential store.md").exists());
+        assert_eq!(
+            fs::read(vault.join(PLUGIN_EXAMPLE_V6_FIXTURE_MARKER)).unwrap(),
+            b"Retain this synthetic marker\n"
+        );
     }
 
     #[test]

@@ -122,6 +122,13 @@ approval; it is not included in the desktop installer or enabled by default.
   synchronized preview and full-screen playback. All remain optional;
   [usage and portable formats](docs/user-guide/docs/Optional%20plugins.md#advanced-authoring).
 
+- **[Speech, voice notes, and transcription](docs/user-guide/docs/Optional%20plugins.md#speech-voice-notes-and-transcription):**
+  local voices, explicit microphone recording, portable audio links, and
+  reviewed local NVIDIA Nemotron transcripts.
+- **[Encrypted credential store](docs/user-guide/docs/Optional%20plugins.md#encrypted-credential-store):**
+  independently encrypted entries, masked secrets, expiring clipboard copies,
+  and separately authenticated plaintext exports.
+
 Disabling a plugin stops its worker and removes its downloaded code, not your
 notes. Read the [plugin guide](docs/user-guide/docs/Optional%20plugins.md) for
 setup, permission, update, and cleanup details.

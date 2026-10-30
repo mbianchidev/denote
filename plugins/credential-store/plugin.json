@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.credential-store",
+  "name": "Encrypted credential store",
+  "version": "0.1.0",
+  "description": "An independently password-protected local store with masked secrets and authenticated exports.",
+  "publisher": { "name": "Denote", "url": "https://github.com/mbianchidev/denote" },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "security-privacy",
+  "compatibility": { "apiVersion": 1, "minimumDenoteVersion": "0.11.0", "maximumDenoteVersion": "1.0.0" },
+  "permissions": [{ "capability": "credential-store" }],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}
