@@ -332,6 +332,14 @@ semantic meaning.
 ### Navigation
 
 The activity rail is icon-led and uses an active indicator on the leading edge.
+Optional sidebar tools use distinct, host-owned role icons: a terminal prompt for
+Terminal, a document with an overlaid magnifying glass for Linter, a circuit board
+for Compiler, and braces for Code intelligence. Reference/static views use an
+open book. Git, graphs, tasks, calendars, reminders, clocks, comments, speech and
+credentials retain their own established icons. The same glyph follows each
+view into **Organize plugins**, including hidden entries; names, keyboard
+controls and focus remain authoritative. Icons use current-color 19px strokes
+at the rail and never render downloaded SVG or executable plugin UI.
 File rows, tabs, and outline entries share compact hover and selected states.
 Plugin source-control providers receive distinct, named rail buttons without
 becoming static sidebar views. Their host-rendered sidebar starts with a compact

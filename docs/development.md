@@ -1680,10 +1680,10 @@ versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-31**.
-Rechecked again for the Phase 4 requirement audit and UI evidence on the same
-date. The seven compatible/current release pairs and the linked upstream and
-RustSec outcomes below remain unchanged; no compatible published replacement
-removes a local backport.
+Rechecked again for the Phase 4 requirement audit, UI evidence, and distinct
+sidebar icons on the same date. The seven compatible/current release pairs and
+the linked upstream and RustSec outcomes below remain unchanged; no compatible
+published replacement removes a local backport.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked at
 the start of the Phase 4 linter, build, and terminal implementation using the
 [official registry index](https://github.com/rust-lang/crates.io-index).

@@ -46,6 +46,34 @@ async function approve(page: Page, name: string, kind: "linter" | "build" | "ter
   return panel;
 }
 
+test("tooling sidebar icons remain distinct across themes and organization controls", async ({ page }) => {
+  await openSource(page);
+  const icons = [
+    ["Linter", "file-search-corner"],
+    ["Build and compiler", "circuit-board"],
+    ["Ghostty terminal", "square-terminal"],
+  ] as const;
+  for (const [name, icon] of icons) {
+    await expect(page.getByRole("button", { name, exact: true }).locator(`.lucide-${icon}`)).toHaveCount(1);
+  }
+  await page.getByRole("button", { name: "Switch to light mode", exact: true }).click();
+  for (const [name, icon] of icons) {
+    await expect(page.getByRole("button", { name, exact: true }).locator(`.lucide-${icon}`)).toHaveCount(1);
+  }
+  await page.getByLabel("Organize plugins", { exact: true }).click();
+  const manager = page.locator(".activity-rail__plugin-manager-panel");
+  for (const [name, icon] of icons) {
+    await expect(manager.locator("li").filter({ has: page.getByText(name, { exact: true }) })
+      .locator(`.lucide-${icon}`)).toHaveCount(1);
+  }
+  await manager.getByRole("button", { name: "Hide Ghostty terminal", exact: true }).click();
+  await manager.getByText("Hidden plugins (1)", { exact: true }).click();
+  const hidden = manager.locator("details").filter({ has: page.getByText("Hidden plugins (1)", { exact: true }) });
+  await expect(hidden.locator(".lucide-square-terminal")).toHaveCount(1);
+  await hidden.getByRole("button", { name: "Show Ghostty terminal", exact: true }).click();
+  expect(await page.evaluate(() => window.__DENOTE_TOOLING__.starts)).toEqual([]);
+});
+
 test("real linter worker, source markers, reviewed fixes and clean-run replacement stay version-bound", async ({ page }) => {
   await openSource(page);
   const panel = await approve(page, "Linter", "linter");

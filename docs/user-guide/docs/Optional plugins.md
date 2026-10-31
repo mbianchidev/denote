@@ -6,6 +6,10 @@ category or enabled state, inspect permissions, and read each guide before
 enabling anything.
 
 Each plugin starts as a compact row showing only its name and current status.
+Sidebar tools have recognizable activity-rail icons: a terminal prompt for
+Ghostty terminal, a document and magnifying glass for Linter, a circuit board for
+Build and compiler, and braces for Code intelligence. **Organize plugins** uses
+the same icons when you reorder, group or hide those views.
 Open the row to see its description, version, publisher, permissions, guide,
 settings, and enable, update, disable, or cleanup actions. Entries with an error
 open automatically so the failure stays visible.

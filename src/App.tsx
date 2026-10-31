@@ -10800,6 +10800,8 @@ function App() {
           providerId: timeViews.find((provider) => provider.pluginId === activeTimeTracking.pluginId)?.id ?? activeTimeTracking.providerId,
         } : null}
         pluginViews={pluginController.sidebarViews}
+        toolProviders={pluginController.toolProviders}
+        codeProviders={pluginController.codeProviders}
         sensitiveTools={sensitiveTools}
         sourceControlProviders={pluginController.sourceControlProviders}
         noteGraphs={noteGraphs}
