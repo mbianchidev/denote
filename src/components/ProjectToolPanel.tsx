@@ -33,7 +33,7 @@ export function ProjectToolPanel({ provider, host, projectId, documentPath, encr
   const selectedProject = scope === "vault" ? null : projectId;
   const model = host.model(provider.id, selectedProject, language);
   const running = model.status === "running";
-  const unsaved = host.unsaved(selectedProject);
+  const unsaved = host.unsaved(selectedProject, environment?.scope.rootPath);
   useEffect(() => { if (!build) setLanguage(detected); }, [build, detected]);
   useEffect(() => {
     const current = ++generation.current;

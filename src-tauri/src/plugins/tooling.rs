@@ -16,6 +16,7 @@ use command_group::{CommandGroup, GroupChild};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::tooling_output::{ToolOutputText, translate_linter_paths};
 use crate::error::{AppError, AppResult};
 
 const MAX_QUEUED_BYTES: usize = 1024 * 1024;
@@ -437,40 +438,50 @@ impl ToolSession {
         reader: Box<dyn Read + Send>,
     ) -> AppResult<()> {
         let weak = Arc::downgrade(session);
+        let json_output = stream == "stdout" && session.format == "eslint-json";
+        let line_limit = if session.kind == "process" {
+            1024 * 1024
+        } else {
+            64 * 1024
+        };
+        let mut text = ToolOutputText::new(&session.vault_root, session.kind == "process");
         let worker = thread::spawn(move || {
             let mut reader = BufReader::new(reader);
             loop {
-                let line_limit = if weak
-                    .upgrade()
-                    .is_some_and(|session| session.kind == "process")
-                {
-                    1024 * 1024
-                } else {
-                    64 * 1024
-                };
-                let mut bytes = vec![0; if stream == "terminal" { 8192 } else { 0 }];
-                let result = if stream == "terminal" {
+                let mut bytes = vec![0; if json_output { 0 } else { 8192 }];
+                let result = if !json_output {
                     reader.read(&mut bytes)
                 } else {
                     Read::by_ref(&mut reader)
-                        .take(line_limit + 1)
+                        .take(line_limit as u64 + 1)
                         .read_until(b'\n', &mut bytes)
                 };
                 let Some(session) = weak.upgrade() else { break };
                 match result {
-                    Ok(0) => break,
+                    Ok(0) => {
+                        if stream != "terminal" && !json_output {
+                            let data = text.finish();
+                            if !data.is_empty()
+                                && let Err(error) = session.enqueue(ToolOutput {
+                                    stream: stream.clone(),
+                                    data,
+                                })
+                            {
+                                session.request_failure(&error.to_string());
+                            }
+                        }
+                        break;
+                    }
                     Ok(count) => {
                         bytes.truncate(count);
-                        if stream != "terminal" && count as u64 > line_limit {
+                        if json_output && count > line_limit {
                             session.request_failure("Tool output line exceeds its approved limit.");
                             break;
                         }
                         let data = if stream == "terminal" {
                             use base64::Engine;
                             base64::engine::general_purpose::STANDARD.encode(bytes)
-                        } else if session.kind == "process" {
-                            String::from_utf8_lossy(&bytes).into_owned()
-                        } else if stream == "stdout" && session.format == "eslint-json" {
+                        } else if json_output {
                             match translate_linter_paths(&bytes, &session.vault_root) {
                                 Ok(data) => data,
                                 Err(error) => {
@@ -479,18 +490,17 @@ impl ToolSession {
                                 }
                             }
                         } else {
-                            let root = crate::paths::path_for_display(&session.vault_root);
-                            let slash_root = root.replace('\\', "/");
-                            let escaped = root.replace('\\', "\\\\").replace('"', "\\\"");
-                            let text = String::from_utf8_lossy(&bytes).into_owned();
-                            text.replace(&format!("{root}/"), "")
-                                .replace(&format!("{root}\\"), "")
-                                .replace(&format!("{escaped}/"), "")
-                                .replace(&format!("{escaped}\\\\"), "")
-                                .replace(&format!("{slash_root}/"), "")
-                                .replace(&slash_root, "[vault]")
-                                .replace(&root, "[vault]")
+                            match text.push(&bytes) {
+                                Ok(data) => data,
+                                Err(error) => {
+                                    session.request_failure(&error.to_string());
+                                    break;
+                                }
+                            }
                         };
+                        if data.is_empty() {
+                            continue;
+                        }
                         if let Err(error) = session.enqueue(ToolOutput {
                             stream: stream.clone(),
                             data,
@@ -685,51 +695,6 @@ fn libc_eio() -> i32 {
     }
 }
 
-fn translate_linter_paths(bytes: &[u8], root: &Path) -> AppResult<String> {
-    let mut value: serde_json::Value = serde_json::from_slice(bytes).map_err(|error| {
-        AppError::Plugin(format!(
-            "Linter output is not complete ESLint JSON: {error}"
-        ))
-    })?;
-    let files = value
-        .as_array_mut()
-        .ok_or_else(|| AppError::Plugin("ESLint JSON must be a file-result array.".into()))?;
-    let prefix = format!(
-        "{}/",
-        crate::paths::path_for_display(root)
-            .replace('\\', "/")
-            .trim_end_matches('/')
-    );
-    for file in files {
-        let object = file
-            .as_object_mut()
-            .ok_or_else(|| AppError::Plugin("Invalid ESLint JSON file result.".into()))?;
-        let path = object
-            .get("filePath")
-            .and_then(|path| path.as_str())
-            .ok_or_else(|| AppError::Plugin("ESLint JSON file path is missing.".into()))?
-            .replace('\\', "/");
-        let relative = if path.starts_with(&prefix)
-            || (cfg!(windows)
-                && path
-                    .as_bytes()
-                    .get(..prefix.len())
-                    .is_some_and(|start| start.eq_ignore_ascii_case(prefix.as_bytes())))
-        {
-            path[prefix.len()..].to_string()
-        } else if path.starts_with('/') || path.as_bytes().get(1) == Some(&b':') {
-            String::new()
-        } else {
-            path
-        };
-        object.insert("filePath".into(), relative.into());
-        object.remove("source");
-        object.remove("output");
-    }
-    serde_json::to_string(&value)
-        .map_err(|error| AppError::Plugin(format!("Unable to translate linter paths: {error}")))
-}
-
 impl Drop for ToolSession {
     fn drop(&mut self) {
         if let Err(error) = self.stop() {
@@ -895,6 +860,34 @@ mod tests {
         assert!(result.error.is_none());
         assert!(stdout.contains("example.rs:1:1"));
         assert!(stderr.contains("compiler failed"));
+    }
+
+    #[test]
+    fn builds_stream_partial_unicode_output_before_the_process_finishes() {
+        let root = TempDir::new().unwrap();
+        let session = launch(
+            root.path(),
+            "build",
+            "printf 'Building λ'; printf 'warning preview' >&2; while [ ! -f finish ]; do sleep 0.02; done",
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        while Instant::now() < deadline && (stdout.is_empty() || stderr.is_empty()) {
+            let result = session.poll().unwrap();
+            assert_eq!(result.status, "running");
+            for event in result.events {
+                if event.stream == "stdout" {
+                    stdout.push_str(&event.data);
+                } else if event.stream == "stderr" {
+                    stderr.push_str(&event.data);
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        session.stop().unwrap();
+        assert_eq!(stdout, "Building λ");
+        assert_eq!(stderr, "warning preview");
     }
 
     #[test]

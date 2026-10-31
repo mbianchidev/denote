@@ -22,6 +22,7 @@ export interface ToolContext {
 
 export interface ToolEnvironment {
   configured: boolean;
+  profileLanguage: string;
   scope: PluginCodeScope;
   configuration: ToolConfiguration;
   platform: string;

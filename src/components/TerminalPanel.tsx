@@ -42,7 +42,7 @@ export function TerminalPanel({ provider, host, projectId, workspaceScope, encry
   const [scope, setScope] = useState<"project" | "vault">("project");
   const [environment, setEnvironment] = useState<ToolEnvironment | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<"opening" | "closing" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
   const tabs = host.tabs(provider.id);
@@ -50,18 +50,18 @@ export function TerminalPanel({ provider, host, projectId, workspaceScope, encry
   const selectedTab = tabs.find((tab) => tab.id === selected) ?? tabs[0] ?? null;
   useEffect(() => {
     const current = ++generation.current;
-    setEnvironment(null); setError(null); setBusy(false);
+    setEnvironment(null); setError(null); setBusy(null);
     if (encrypted) return;
     void api.toolEnvironment(provider.pluginId, { workspaceScope, projectId: selectedProject, kind: "terminal", language: "shell" })
       .then((environment) => { if (current === generation.current) setEnvironment(environment); })
       .catch((caught) => { if (current === generation.current) setError(errorMessage(caught)); });
     return () => { generation.current += 1; };
   }, [provider, selectedProject, workspaceScope, encrypted]);
-  const action = (run: () => Promise<unknown>) => {
+  const action = (operation: "opening" | "closing", run: () => Promise<unknown>) => {
     const current = generation.current;
-    setBusy(true); setError(null);
+    setBusy(operation); setError(null);
     void run().catch((caught) => { if (current === generation.current) setError(errorMessage(caught)); })
-      .finally(() => { if (current === generation.current) setBusy(false); });
+      .finally(() => { if (current === generation.current) setBusy(null); });
   };
   const open = async (tab: TerminalTab, text: string) => {
     if (/^https?:\/\//i.test(text)) { await onOpenExternal(text); return; }
@@ -76,7 +76,7 @@ export function TerminalPanel({ provider, host, projectId, workspaceScope, encry
   return <div className="sidebar-view code-tool-panel terminal-panel">
     <div className="sidebar-view__title"><h2>{provider.title}</h2></div>
     {encrypted ? <p role="note">Terminals are unavailable in encrypted vaults, including while unlocked. No plaintext tooling mirror is created.</p> : <>
-      <label>Scope<select aria-label="Scope" value={scope} disabled={busy} onChange={(event) => setScope(event.target.value as typeof scope)}>
+      <label>Scope<select aria-label="Scope" value={scope} disabled={busy !== null} onChange={(event) => setScope(event.target.value as typeof scope)}>
         <option value="project">Active project</option><option value="vault">Entire vault</option>
       </select></label>
       <p className="code-tool-context">New terminal root: {environment?.scope.rootPath || "Vault"}</p>
@@ -101,13 +101,13 @@ export function TerminalPanel({ provider, host, projectId, workspaceScope, encry
             }} />
         </details>
         <div className="code-tool-actions">
-          <button type="button" className="secondary-button" disabled={busy || !environment.configuration.enabled || !environment.terminalSupported || tabs.length >= 8}
-            onClick={() => action(async () => {
+          <button type="button" className="secondary-button" disabled={busy !== null || !environment.configuration.enabled || !environment.terminalSupported || tabs.length >= 8}
+            onClick={() => action("opening", async () => {
               await loadGhostty();
               const tab = await host.start(provider, host.context(provider, selectedProject), environment.scope.rootPath);
               setSelected(tab.id);
-            })}>{busy ? "Opening…" : "New terminal"}</button>
-          <button type="button" className="secondary-button" disabled={busy || !selectedTab} onClick={() => action(async () => {
+            })}>{busy === "opening" ? "Opening…" : "New terminal"}</button>
+          <button type="button" className="secondary-button" disabled={busy !== null || !selectedTab} onClick={() => action("closing", async () => {
             if (!selectedTab) return;
             const confirmed = selectedTab.status !== "running" || await confirmAction({
               title: `Close ${selectedTab.title}?`, message: "This terminates the shell and its running jobs. Save work inside the terminal first.",
@@ -115,7 +115,7 @@ export function TerminalPanel({ provider, host, projectId, workspaceScope, encry
               dangerous: false,
             });
             if (confirmed) { await host.close(selectedTab.id, true); setSelected(null); }
-          })}>Close terminal</button>
+          })}>{busy === "closing" ? "Closing…" : "Close terminal"}</button>
         </div>
       </> : null}
       <div role="tablist" aria-label="Terminal tabs" className="terminal-tabs">{tabs.map((tab, index) => <button

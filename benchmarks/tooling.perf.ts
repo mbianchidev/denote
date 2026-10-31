@@ -92,6 +92,21 @@ test("builds stream, cancel, require saved-content consent and stay failed after
   await expect(page.locator(".cm-content:visible")).toContainText("const unsaved = 2;");
 });
 
+test("on-save compiler runs use the explicitly approved source-language profile", async ({ page }) => {
+  await openSource(page);
+  const panel = await approve(page, "Build and compiler", "build");
+  await panel.getByLabel("Language profile", { exact: true }).selectOption("typescript");
+  await panel.getByText("Build setup", { exact: true }).click();
+  await panel.getByLabel("Run automatically", { exact: true }).selectOption("save");
+  await panel.getByRole("button", { name: "Save and approve", exact: true }).click();
+  expect(await page.evaluate(() => window.__DENOTE_TOOLING__.starts)).toEqual([]);
+  await page.locator(".cm-content:visible").fill("const saved = 3;\n");
+  await expect.poll(() => page.evaluate(() => window.__DENOTE_TOOLING__.starts.map((run) => ({
+    kind: run.kind, language: run.language, trigger: run.trigger,
+  })))).toEqual([{ kind: "build", language: "typescript", trigger: "save" }]);
+  await expect(panel.getByRole("status")).toContainText("Run failed (exit 2).");
+});
+
 test("Ghostty uses real bundled WASM, Unicode, keyboard escape, search, copy and close confirmation", async ({ page }) => {
   await openSource(page);
   const panel = await approve(page, "Ghostty terminal", "terminal");

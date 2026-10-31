@@ -12,6 +12,7 @@ mod settings;
 mod time_tracking;
 mod tooling;
 mod tooling_commands;
+mod tooling_output;
 mod types;
 
 #[cfg(test)]

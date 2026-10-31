@@ -1027,6 +1027,12 @@ interactive job groups are included; the session leader remains unreaped until
 cleanup to avoid recycling its PID. Queues and output are bounded and failures
 remain observable. Legacy `process.run` now uses this same lifecycle registry
 while retaining its 30-second/1-MiB limits and finite-result contract.
+`tooling_output.rs` incrementally decodes and redacts streamed chunks without
+waiting for newlines; split UTF-8 sequences and incomplete vault-path prefixes
+remain buffered rather than becoming corrupted text or leaked absolute roots.
+The resolved native configuration reports its matched language profile so
+on-save builds do not ignore language-specific approvals. Draft checks use the
+whole resolved build subtree, including nested projects.
 
 One native startup reader/writer gate orders startup before vault access.
 Disable holds exclusive startup access through native cleanup and state/package

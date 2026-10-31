@@ -196,8 +196,9 @@ export class ToolingHost {
     this.scheduleAutomatic(entry, "save");
   }
 
-  unsaved(projectId: string | null): string[] {
-    return [...this.documents.values()].filter((document) => (projectId === null || document.projectId === projectId) &&
+  unsaved(projectId: string | null, rootPath?: string): string[] {
+    return [...this.documents.values()].filter((document) =>
+      (rootPath === undefined ? projectId === null || document.projectId === projectId : inside(document.path, rootPath)) &&
       document.content !== document.savedContent).map((document) => document.path);
   }
 
@@ -235,7 +236,7 @@ export class ToolingHost {
       if (configuration.stdin && document && new TextEncoder().encode(document.content).length > 4 * 1024 * 1024) {
         throw new Error("Stdin linting supports source up to 4 MiB.");
       }
-      if ((!configuration.stdin && this.unsaved(projectId).length) && !useSaved) {
+      if ((!configuration.stdin && this.unsaved(projectId, environment.scope.rootPath).length) && !useSaved) {
         throw new Error("There are unsaved edits. Save all files or explicitly choose Run on saved files.");
       }
       const paths = [...new Set([...this.files, ...this.documents.keys()])].filter((file) => inside(file, environment.scope.rootPath));
@@ -423,7 +424,7 @@ export class ToolingHost {
   private scheduleAutomatic(document: Document, trigger: "save" | "change"): void {
     const generation = this.generation;
     for (const provider of this.providers) {
-      const language = provider.kind === "build" ? "all" : toolLanguage(document.path);
+      const language = toolLanguage(document.path);
       const key = modelKey(provider.id, document.projectId, language);
       const epochKey = `${key}:${trigger}`;
       const epoch = ++this.automaticSequence;
@@ -437,7 +438,8 @@ export class ToolingHost {
         }
         if (generation !== this.generation || this.automaticEpochs.get(epochKey) !== epoch ||
             !environment.configuration.enabled || environment.configuration.runOn !== trigger) return;
-        const effectiveKey = modelKey(provider.id, projectId, language);
+        const runLanguage = provider.kind === "build" ? environment.profileLanguage : language;
+        const effectiveKey = modelKey(provider.id, projectId, runLanguage);
         const effectiveEpoch = `${effectiveKey}:${trigger}`;
         if ((this.automaticEpochs.get(effectiveEpoch) ?? 0) > epoch) return;
         this.automaticEpochs.set(effectiveEpoch, epoch);
@@ -446,7 +448,7 @@ export class ToolingHost {
         const timer = setTimeout(() => {
           this.timers.delete(effectiveKey);
           if (generation !== this.generation || this.documents.get(document.path) !== document) return;
-          void this.run(provider, projectId, language, document.path, trigger).catch(this.reportError);
+          void this.run(provider, projectId, runLanguage, document.path, trigger).catch(this.reportError);
         }, trigger === "change" ? environment.configuration.debounceMs : 0);
         this.timers.set(effectiveKey, timer);
       })().catch((error) => { if (generation === this.generation) this.reportError(error); });

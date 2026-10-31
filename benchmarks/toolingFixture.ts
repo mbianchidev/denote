@@ -12,7 +12,7 @@ import terminalCode from "../plugins/terminal/dist/index.js?raw";
 
 interface ToolingFixtureState {
   documents: Record<string, string>;
-  starts: Array<{ pluginId: string; kind: string; runId: string; input: unknown; trigger: string }>;
+  starts: Array<{ pluginId: string; kind: string; language: string; runId: string; input: unknown; trigger: string }>;
   stops: string[];
   input: string[];
   unexpectedCommands: string[];
@@ -133,6 +133,7 @@ mockIPC((command, payload) => {
     case "tool_environment": {
       const value = context(payload);
       return { configured: configurations.has(configKey(value)) || configurations.has(configKey({ ...value, language: "all" })),
+        profileLanguage: configurations.has(configKey(value)) ? value.language : "all",
         scope: { projectId: value.projectId, rootPath: "" }, configuration: configuration(value),
         platform: state.platform, terminalSupported: state.platform !== "windows",
         limitation: state.platform === "windows" ? "Windows PTY process-tree shutdown is not yet verified." : null };
@@ -152,7 +153,7 @@ mockIPC((command, payload) => {
       const runId = `synthetic-run-${state.starts.length + 1}`;
       const paths = field(request, "paths");
       if (!Array.isArray(paths) || !paths.every((path) => typeof path === "string")) throw new Error("Invalid synthetic source snapshot.");
-      state.starts.push({ pluginId: argument(payload, "pluginId"), kind: value.kind, runId,
+      state.starts.push({ pluginId: argument(payload, "pluginId"), kind: value.kind, language: value.language, runId,
         input: field(request, "input"), trigger: argument(request, "trigger") });
       runs.set(runId, { kind: value.kind, pluginId: argument(payload, "pluginId"), polls: 0, stopped: false });
       return { runId, scope: { projectId: value.projectId, rootPath: "" }, documents: paths.map((path) => ({ path, version: hash(path) })) };

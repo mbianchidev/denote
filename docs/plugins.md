@@ -391,6 +391,9 @@ vault-relative source paths and versions, the captured project/root, and a run
 ID. The host checks returned run/file/version associations independently.
 Supported parsers are Unix, MSVC, ESLint JSON, and Cargo JSON. Column units are
 configured and translated to editor UTF-16 positions by the host.
+Finite command output is streamed before a newline or process exit. Incremental
+UTF-8 decoding and path redaction retain split characters and vault-path prefixes
+between reads; ESLint fix text stays outside generic path redaction.
 
 The worker cannot select an executable or start a process. Native
 `tooling_commands.rs` owns per-vault/project/language configuration, explicit
@@ -401,6 +404,10 @@ implicit shell expansion; `%FILE%` is relative to the approved working directory
 Automatic save/change triggers require their own approved configuration.
 Unconfigured projects inherit an approved vault-wide automatic profile; a saved
 project profile overrides it, including explicit disablement.
+After-save builds select the saved document's language-specific profile before
+falling back to All languages, and keep their run bound to the actual approved
+profile. Saved-content consent covers every open draft inside the build root,
+including files owned by nested project roots.
 On-edit linting requires stdin, and never materializes a plaintext temp file.
 
 `ToolingHost` owns run identity, cancellation, streamed output, Problems filters,

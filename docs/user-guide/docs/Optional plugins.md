@@ -572,6 +572,8 @@ Enable **Build and compiler** and configure an installed build executable and
 JSON arguments in its panel. Choose **All languages** or a language-specific
 profile, and the active project or entire vault. Approval is separate from
 **Build**; optional on-save execution must be explicitly approved.
+On-save builds use the saved file's language profile, with All languages as
+the fallback. A parent project build checks drafts in its nested projects too.
 
 Cargo supports `["check", "--message-format=json"]` with Cargo JSON. Unix and
 MSVC parsers cover conventional compiler messages. Standard output and standard

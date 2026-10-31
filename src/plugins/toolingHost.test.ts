@@ -26,7 +26,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(api, "toolEnvironment").mockResolvedValue({
     scope: { projectId: "project-example", rootPath: "sample" }, configuration,
-    configured: true, platform: "macos", terminalSupported: true, limitation: null,
+    configured: true, profileLanguage: "typescript", platform: "macos", terminalSupported: true, limitation: null,
   });
   vi.spyOn(api, "startToolSession").mockResolvedValue({
     runId: "run-example", scope: { projectId: "project-example", rootPath: "sample" },
@@ -42,12 +42,51 @@ beforeEach(() => {
 });
 
 describe("shared linter and build host", () => {
+  it("runs approved language-specific builds after a matching source save", async () => {
+    vi.useFakeTimers();
+    const build = { ...provider, kind: "build" as const };
+    const { host } = setup(build);
+    try {
+      vi.mocked(api.toolEnvironment).mockImplementation(async (_id, context) => ({
+        configured: context.language === "typescript", profileLanguage: context.language,
+        scope: { projectId: context.projectId, rootPath: "sample" },
+        configuration: { ...configuration, enabled: context.language === "typescript", stdin: false, runOn: "save" },
+        platform: "macos", terminalSupported: true, limitation: null,
+      }));
+      vi.mocked(api.pollToolSession).mockResolvedValue({ status: "succeeded", exitCode: 0, error: null, events: [] });
+      await host.saved(path, "const demo = 1;\n", hash);
+      await vi.advanceTimersByTimeAsync(250);
+      expect(api.startToolSession).toHaveBeenCalledWith(build.pluginId,
+        expect.objectContaining({ language: "typescript", projectId: "project-example" }),
+        expect.objectContaining({ trigger: "save" }));
+    } finally { host.dispose(); vi.useRealTimers(); }
+  });
+
+  it("requires saved-content consent for unsaved files in nested projects inside a build root", async () => {
+    const build = { ...provider, kind: "build" as const };
+    vi.mocked(api.toolEnvironment).mockResolvedValue({
+      configured: true, profileLanguage: "typescript", scope: { projectId: "project-example", rootPath: "sample" },
+      configuration: { ...configuration, stdin: false }, platform: "macos", terminalSupported: true, limitation: null,
+    });
+    const { host } = setup(build);
+    host.syncDocuments([
+      { path, content: "const demo = 1;\n", savedContent: "const demo = 1;\n", savedHash: hash, projectId: "project-example" },
+      { path: "sample/nested/example.ts", content: "const draft = 2;\n", savedContent: "const saved = 1;\n",
+        savedHash: hash, projectId: "nested-project-example" },
+    ]);
+    try {
+      await expect(host.run(build, "project-example", "typescript", path)).rejects.toThrow(/unsaved/i);
+      expect(api.startToolSession).not.toHaveBeenCalled();
+    } finally { host.dispose(); }
+  });
+
   it("uses an explicitly approved vault profile for automatic runs when a project has no override", async () => {
     vi.useFakeTimers();
     const { host } = setup();
     try {
       vi.mocked(api.toolEnvironment).mockImplementation(async (_id, context) => ({
-        configured: context.projectId === null, scope: { projectId: context.projectId, rootPath: context.projectId ? "sample" : "" },
+        configured: context.projectId === null, profileLanguage: context.language,
+        scope: { projectId: context.projectId, rootPath: context.projectId ? "sample" : "" },
         configuration: { ...configuration, enabled: context.projectId === null, runOn: "save" },
         platform: "macos", terminalSupported: true, limitation: null,
       }));
@@ -64,7 +103,7 @@ describe("shared linter and build host", () => {
     const { host } = setup();
     try {
       vi.mocked(api.toolEnvironment).mockResolvedValue({
-        configured: true, scope: { projectId: "project-example", rootPath: "sample" },
+        configured: true, profileLanguage: "typescript", scope: { projectId: "project-example", rootPath: "sample" },
         configuration: { ...configuration, enabled: false, runOn: "save" },
         platform: "macos", terminalSupported: true, limitation: null,
       });
@@ -125,7 +164,7 @@ describe("shared linter and build host", () => {
     const build = { ...provider, kind: "build" as const };
     vi.mocked(api.toolEnvironment).mockResolvedValue({
       scope: { projectId: "project-example", rootPath: "sample" }, configuration: { ...configuration, stdin: false },
-      configured: true, platform: "macos", terminalSupported: true, limitation: null,
+      configured: true, profileLanguage: "typescript", platform: "macos", terminalSupported: true, limitation: null,
     });
     const { host } = setup(build);
     host.update(path, "const unsaved = 4;\n");
@@ -139,7 +178,7 @@ describe("shared linter and build host", () => {
   it("checks source and run identity again before applying a previewed fix", async () => {
     vi.mocked(api.toolEnvironment).mockResolvedValue({
       scope: { projectId: "project-example", rootPath: "sample" }, configuration: { ...configuration, format: "eslint-json" },
-      configured: true, platform: "macos", terminalSupported: true, limitation: null,
+      configured: true, profileLanguage: "typescript", platform: "macos", terminalSupported: true, limitation: null,
     });
     vi.mocked(api.pollToolSession).mockResolvedValue({
       status: "failed", exitCode: 1, error: null, events: [{ stream: "stdout", data: JSON.stringify([{
@@ -176,7 +215,7 @@ describe("shared linter and build host", () => {
     vi.mocked(api.toolEnvironment).mockResolvedValue({
       scope: { projectId: "project-example", rootPath: "sample" },
       configuration: { ...configuration, stdin: false, format: "eslint-json" },
-      configured: true, platform: "macos", terminalSupported: true, limitation: null,
+      configured: true, profileLanguage: "typescript", platform: "macos", terminalSupported: true, limitation: null,
     });
     vi.mocked(api.pollToolSession).mockResolvedValue({
       status: "failed", exitCode: 1, error: null, events: [{ stream: "stdout", data: JSON.stringify([{

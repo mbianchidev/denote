@@ -74,6 +74,7 @@ pub struct ToolStartRequest {
 #[serde(rename_all = "camelCase")]
 pub struct ToolEnvironment {
     pub configured: bool,
+    pub profile_language: String,
     pub scope: CodeProjectScope,
     pub configuration: ToolConfiguration,
     pub platform: String,
@@ -175,26 +176,31 @@ fn configuration(
     plugin_id: &str,
     resolved: &ResolvedContext,
     context: &ToolContext,
-) -> AppResult<Option<ToolConfiguration>> {
+) -> AppResult<Option<(String, ToolConfiguration)>> {
     let state = manager.state()?;
     let all_languages = ToolContext {
         language: "all".into(),
         ..context.clone()
     };
-    state
+    let profile = state
         .tool_configurations
         .get(&key(plugin_id, resolved, context))
+        .map(|value| (context.language.clone(), value))
         .or_else(|| {
             state
                 .tool_configurations
                 .get(&key(plugin_id, resolved, &all_languages))
-        })
-        .map(|value| {
-            serde_json::from_value(value.clone()).map_err(|error| {
-                AppError::Plugin(format!(
-                    "Saved tool configuration is invalid. Review and approve it again: {error}"
-                ))
-            })
+                .map(|value| ("all".to_string(), value))
+        });
+    profile
+        .map(|(language, value)| {
+            serde_json::from_value(value.clone())
+                .map(|configuration| (language, configuration))
+                .map_err(|error| {
+                    AppError::Plugin(format!(
+                        "Saved tool configuration is invalid. Review and approve it again: {error}"
+                    ))
+                })
         })
         .transpose()
 }
@@ -253,7 +259,9 @@ pub async fn tool_environment(
         let _access = state.read_vault_access()?;
         let resolved = resolve_context(&state, &context)?;
         let configuration = configuration(&manager, &plugin_id, &resolved, &context)?;
-        Ok(ToolEnvironment { configured: configuration.is_some(), configuration: configuration.unwrap_or_default(),
+        let configured = configuration.is_some();
+        let (profile_language, configuration) = configuration.unwrap_or_else(|| (context.language.clone(), ToolConfiguration::default()));
+        Ok(ToolEnvironment { configured, profile_language, configuration,
             scope: resolved.scope, platform: super::sandbox::current_platform().into(), terminal_supported: cfg!(unix),
             limitation: if cfg!(unix) { None } else {
                 Some("Embedded terminals currently support macOS and Linux. Windows PTY process-tree shutdown is not yet verified.".into())
@@ -369,7 +377,8 @@ pub async fn start_tool_session(
         let state = app.state::<db::AppState>();
         let _access = state.read_vault_access()?;
         let resolved = resolve_context(&state, &context)?;
-        let configuration = configuration(&manager, &plugin_id, &resolved, &context)?.unwrap_or_default();
+        let configuration = configuration(&manager, &plugin_id, &resolved, &context)?
+            .map(|(_, configuration)| configuration).unwrap_or_default();
         validate_configuration(&configuration, &context.kind)?;
         if !configuration.enabled {
             return Err(AppError::Plugin("This tool is disabled. Choose its installed executable and Save and approve before running it.".into()));
