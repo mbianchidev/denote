@@ -434,6 +434,16 @@ pub fn run() {
             plugins::start_code_session,
             plugins::code_protocol,
             plugins::stop_code_sessions,
+            plugins::tool_environment,
+            plugins::choose_tool_executable,
+            plugins::save_tool_configuration,
+            plugins::start_tool_session,
+            plugins::poll_tool_session,
+            plugins::write_tool_input,
+            plugins::resize_tool_terminal,
+            plugins::stop_tool_session,
+            plugins::stop_tool_sessions,
+            plugins::validate_tool_documents,
             plugins::plugin_git_request,
             plugins::plugin_github_list_repositories,
             plugins::plugin_git_clone_vault,
@@ -453,6 +463,8 @@ pub fn run() {
                     .cancel_all_git_operations();
                 app.state::<plugins::PluginManager>()
                     .stop_all_code_sessions();
+                app.state::<plugins::PluginManager>()
+                    .stop_all_tool_sessions();
             }
             RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<AppState>();

@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "6c2bfeafc61ddb47aacafe48bd1e73c8cdc1a752",
+    "kind": "source",
+    "sourcePath": "plugins/terminal",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.13.0/denote.terminal-0.1.0.tgz",
+      "sha256": "498fd7e8ecef23cba06ea53a1e0fa614b745cb55c0a1762bab27e725470878cb",
+      "sizeBytes": 16956
+    }
+  }
+]

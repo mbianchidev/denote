@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.terminal",
+  "name": "Ghostty terminal",
+  "version": "0.1.0",
+  "description": "Open explicitly approved interactive shells in host-rendered Ghostty terminal tabs.",
+  "publisher": { "name": "Denote", "url": "https://github.com/mbianchidev/denote" },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "code",
+  "compatibility": { "apiVersion": 1, "minimumDenoteVersion": "0.12.0", "maximumDenoteVersion": "1.0.0" },
+  "permissions": [{ "capability": "terminal" }, { "capability": "project-context" }, { "capability": "sidebar" }],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

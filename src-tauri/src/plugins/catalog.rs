@@ -177,6 +177,8 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
                     | "calendar"
                     | "diagram-renderer"
                     | "code-intelligence"
+                    | "tooling"
+                    | "terminal"
             )
         })
     {
@@ -224,6 +226,8 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "note-events"
             | "project-context"
             | "code-intelligence"
+            | "tooling"
+            | "terminal"
             | "source-control"
             | "automatic-local-commit"
             | "automatic-git-push"

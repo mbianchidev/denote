@@ -172,6 +172,8 @@ pub(super) fn manager(
             initialization_error: Mutex::new(None),
             git_operations: Default::default(),
             code_sessions: Default::default(),
+            tool_sessions: Default::default(),
+            native_tool_access: Default::default(),
             clone_cleanups: Default::default(),
             clone_destinations: Default::default(),
             _process_lock: None,
@@ -1147,13 +1149,18 @@ fn embedded_bundle_metadata_is_valid_and_exposes_code_tooling_roles() {
             vec!["denote.code-intelligence".to_string()]
         );
     }
-    assert!(
-        code_tooling
+    for (role_id, candidate) in [
+        ("terminal", "denote.terminal"),
+        ("linter", "denote.linter"),
+        ("compiler", "denote.compiler"),
+    ] {
+        let role = code_tooling
             .roles
             .iter()
-            .filter(|role| matches!(role.id.as_str(), "terminal" | "linter" | "compiler"))
-            .all(|role| role.candidate_plugin_ids.is_empty())
-    );
+            .find(|role| role.id == role_id)
+            .expect("tooling role");
+        assert_eq!(role.candidate_plugin_ids, vec![candidate.to_string()]);
+    }
 }
 
 #[test]
@@ -1475,6 +1482,9 @@ fn process_capability_runs_only_an_approved_absolute_executable() {
                 arguments: vec!["hello".to_string()],
             },
             None,
+            manager
+                .read_native_tool_access()
+                .expect("tool startup access"),
         )
         .expect("process");
 
@@ -1489,6 +1499,9 @@ fn process_capability_runs_only_an_approved_absolute_executable() {
                     arguments: vec![],
                 },
                 None,
+                manager
+                    .read_native_tool_access()
+                    .expect("tool startup access"),
             )
             .is_err()
     );
@@ -1530,6 +1543,9 @@ fn process_capability_uses_an_approved_project_working_directory() {
                 arguments: vec![],
             },
             Some(&project),
+            manager
+                .read_native_tool_access()
+                .expect("tool startup access"),
         )
         .expect("process");
 

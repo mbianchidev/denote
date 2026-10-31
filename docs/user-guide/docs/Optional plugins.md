@@ -6,6 +6,10 @@ category or enabled state, inspect permissions, and read each guide before
 enabling anything.
 
 Each plugin starts as a compact row showing only its name and current status.
+Sidebar tools have recognizable activity-rail icons: a terminal prompt for
+Ghostty terminal, a document and magnifying glass for Linter, a circuit board for
+Build and compiler, and braces for Code intelligence. **Organize plugins** uses
+the same icons when you reorder, group or hide those views.
 Open the row to see its description, version, publisher, permissions, guide,
 settings, and enable, update, disable, or cleanup actions. Entries with an error
 open automatically so the failure stays visible.
@@ -77,8 +81,8 @@ workspace-discovered implicit projects alike, it receives only a stable opaque
 project ID and vault-relative root, plus change events—never an absolute path or
 Denote implementation object. A plugin command captures that project identity.
 Existing bounded process actions revalidate it and use the current project root
-as their working directory. Persistent terminals remain future plugin work.
-Code intelligence has its own explicitly approved native protocol sessions.
+as their working directory. Linter, Build and compiler, Ghostty terminal, and
+Code intelligence use separate explicitly approved native session contracts.
 
 With a focused active project, **Settings → Plugins** shows a non-blocking
 **Code tooling** recommendation for Git, Terminal, Language server, Linter,
@@ -538,6 +542,88 @@ all stored sessions and corrections. Storage failures are visible and corrupt
 data is never silently reset.
 
 Try the [time tracking practice](<../plugins/Time tracking.md>).
+
+## Linter
+
+Enable **Linter**, then open its activity-rail panel. Choose a language profile
+and project or vault scope. Select an installed executable, enter arguments as
+a JSON array, choose the output parser and column units, check **Enable linter**,
+and **Save and approve**. **Run linter** starts a separate identified run.
+Denote does not install tooling or expand arguments through a shell.
+
+Unix, MSVC, ESLint JSON and Cargo JSON output can provide file, line, column,
+severity, rule and message. Problems has text/severity filters and file
+navigation. Source underlines, gutter indicators and hover details supplement
+the list. Edits invalidate stale results; a clean run removes earlier problems.
+**Cancel** terminates a running linter and its child processes.
+
+For unsaved content, use a stdin-capable linter and **Send current source through
+stdin**. Debounced on-edit runs require stdin; on-save and manual modes are also
+available. Automatic modes run only after you explicitly approve that setup.
+No temporary plaintext source file is created.
+
+For supported ESLint fix proposals, use **Preview fix** in an editable Source
+view, inspect Before and After, then **Apply fix**. The edit has normal undo;
+an intervening source change invalidates the preview. Never configure `--fix`
+or other direct-write flags. Saved-file runs require saving edits or explicitly
+choosing **Run on saved files**.
+
+Try [Linter exercise](<../plugins/Linter.md>).
+
+## Build and compiler
+
+Enable **Build and compiler** and configure an installed build executable and
+JSON arguments in its panel. Choose **All languages** or a language-specific
+profile, and the active project or entire vault. Approval is separate from
+**Build**; optional on-save execution must be explicitly approved.
+On-save builds use the saved file's language profile, with All languages as
+the fallback. A parent project build checks drafts in its nested projects too.
+
+Cargo supports `["check", "--message-format=json"]` with Cargo JSON. Unix and
+MSVC parsers cover conventional compiler messages. Standard output and standard
+error stream separately, with the run ID and real exit status. Nonzero exits
+remain failures. Filter Problems by severity/text and navigate current results.
+**Cancel** terminates the build and its child processes.
+
+Unsaved edits require **Save all and build** through ordinary conflict handling,
+or explicit **Run on saved files**. A failed save prevents execution. Saved-file
+diagnostics never decorate an unsaved draft, and stale file versions are
+discarded rather than attached to newer content.
+
+Both tooling plugins limit snapshots to 5,000 files, 4 MiB per file and 64 MiB
+total; output to 8 MiB and 64 KiB per line; and results to 1,000 diagnostics.
+Finite runs have approved 1-600 second timeouts. Omitted results and limits are
+reported. Commands and approval are local metadata, not Markdown.
+Native tools and project scripts have ordinary operating-system access.
+Approve only trusted tools and projects; encrypted vaults refuse them even while
+unlocked, with no plaintext mirror or encryption key passed to tooling.
+
+Try [Build exercise](<../plugins/Build and compiler.md>).
+
+## Ghostty terminal
+
+Enable **Ghostty terminal**, choose an installed shell and JSON arguments,
+check **Enable shell**, and **Save and approve**. **New terminal** starts a tab
+in the selected project or vault root. macOS and Linux support interactive PTYs.
+Windows reports its current shutdown-verification limitation and starts no shell.
+Ghostty's terminal engine is bundled locally; no shell or other tool is downloaded.
+
+Tabs retain their own starting roots when you focus another project. Use
+keyboard tab controls, resize, Copy, Paste and Search output. Ordinary Tab leaves
+terminal input; **Send Tab** sends shell completion. Multiline or control-character
+paste is reviewed before submission. The canvas preserves terminal colors and
+Unicode, with a bounded text alternative and normal controls for detected links.
+File links and **Open in Denote** use the tab's starting root, not a later shell
+`cd`. External links use Denote's normal approval.
+
+Closing a running tab warns before terminating its shell and jobs. Switching
+vaults, changing shell setup and quitting also warn. Disable and shutdown clean
+up every session and renderer resource; removing/moving a captured project stops
+its affected sessions. Errors and nonzero exits remain visible. Shell settings
+are local metadata; keep secrets out of arguments. Encrypted vaults refuse
+terminals even while unlocked and provide no plaintext content or key material.
+
+Try [Terminal exercise](<../plugins/Ghostty terminal.md>).
 
 ## Code intelligence
 

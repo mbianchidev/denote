@@ -129,6 +129,15 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   starts nothing on enablement, preserves independent language/debug enablement,
   cancels stale document work, and uses core project roots or safe language
   marker detection. Native tools are unavailable in encrypted vaults.
+- Optional Linter and Build and compiler run only explicitly configured,
+  approved local commands. They share host process, streaming, cancellation,
+  and versioned diagnostic contracts. Fixes require a source preview; builds
+  require an explicit choice when content is unsaved. Nothing installs tools.
+- Optional Ghostty terminal uses a bundled terminal engine and approved local
+  shells on macOS and Linux. Windows reports its PTY limitation without
+  launching a shell. Tabs keep their captured project roots, offer keyboard
+  input, resize, search and reviewed links, and warn before closing running
+  jobs. Vault switches, disable and shutdown terminate sessions.
 - Baseline source syntax highlighting uses one filename-driven core
   CodeMirror language registry. Its bundled baseline covers JavaScript, JSX,
   TypeScript, TSX, Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby,
@@ -395,8 +404,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   and context-change events, never an absolute path or editor implementation.
 - Plugin command leases capture the current project identity. Existing bounded
   process execution validates that identity again and uses the current project
-  root as its working directory. Persistent terminal and language-server APIs
-  remain separate future plugin work.
+  root as its working directory. Standing language-server, debugger and terminal
+  sessions use separate typed host surfaces, not unrestricted worker processes.
 - **Settings → Plugins** shows a non-blocking **Code tooling** recommendation
   only when the focused file has an active explicit or implicit project. Git,
   Terminal, Language server, Linter, Compiler, and Code navigation roles show

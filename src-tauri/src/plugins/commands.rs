@@ -841,22 +841,22 @@ pub(super) fn process_request_with_app_state(
     request: PluginProcessRequest,
     project_id: Option<&str>,
 ) -> AppResult<PluginProcessResult> {
-    let _vault_access = if project_id.is_some() {
-        Some(app_state.read_vault_access()?)
-    } else {
-        None
-    };
+    let tool_access = manager.read_native_tool_access()?;
+    let _vault_access = app_state.read_vault_access()?;
+    let root = app_state.active_vault()?;
+    if crate::crypto::load_manifest(&root)?.is_some() {
+        return Err(AppError::Plugin("External processes are unavailable in encrypted vaults. No plaintext content or encryption keys are provided to tooling.".into()));
+    }
     let current_dir = if let Some(project_id) = project_id {
-        let root = app_state.active_vault()?;
         Some(vault::resolve_project_root(
             &app_state.db_path,
             &root.to_string_lossy(),
             project_id,
         )?)
     } else {
-        None
+        Some(root)
     };
-    manager.process_request(plugin_id, request, current_dir.as_deref())
+    manager.process_request(plugin_id, request, current_dir.as_deref(), tool_access)
 }
 
 #[tauri::command]
@@ -1230,6 +1230,7 @@ pub async fn plugin_git_clone_vault(
     // Registration happens only now, after the checkout passed every
     // validation, so a half-finished clone never becomes a known vault.
         let opened = (|| {
+            let _tools = manager.quiesce_native_tools()?;
             let _access = app_state.write_vault_access()?;
             active_vault_for_scope(&app_state, &workspace_scope)?;
             commands::seal_active_vault_before_switch(&app_state)?;

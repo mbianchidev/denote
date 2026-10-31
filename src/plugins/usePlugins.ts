@@ -42,6 +42,7 @@ import type {
 } from "@denote/plugin-sdk";
 import { CLOCKS_STOP_KEY, TIME_TRACKING_STOP_KEY } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "./codeIntelligence";
+import type { PluginToolContribution, PluginToolParseRequest, PluginToolParseResult } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
   type PluginAuthoringContribution,
@@ -135,6 +136,8 @@ function permissionRequestEqual(
     case "note-events":
     case "project-context":
     case "code-intelligence":
+    case "tooling":
+    case "terminal":
     case "source-control":
     case "automatic-local-commit":
     case "automatic-git-push":
@@ -184,6 +187,8 @@ export interface PluginController {
   authoringProviders: PluginAuthoringContribution[];
   requestAuthoring: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
   codeProviders: PluginCodeContribution[];
+  toolProviders: PluginToolContribution[];
+  parseToolOutput: (pluginId: string, providerId: string, request: PluginToolParseRequest, workspaceScope: string) => Promise<PluginToolParseResult>;
   runCodeRequest: (pluginId: string, providerId: string, request: PluginCodeRequest, workspaceScope: string, signal?: AbortSignal) => Promise<PluginCodeResult>;
   plugins: PluginView[];
   bundles: PluginBundleMetadata[];
@@ -342,6 +347,7 @@ export function usePlugins(
   confirmTimeTrackingStop: (names: string[]) => Promise<boolean> = async () => false,
 ): PluginController {
   const [codeProviders, setCodeProviders] = useState<PluginCodeContribution[]>([]);
+  const [toolProviders, setToolProviders] = useState<PluginToolContribution[]>([]);
   const [sensitiveToolState, setSensitiveToolState] = useState<{
     workspaceIdentity: string | null;
     contributions: PluginSensitiveToolContribution[];
@@ -502,6 +508,7 @@ export function usePlugins(
         workspaceIdentity: workspaceIdentityRef.current,
         contributions,
       }),
+      setToolProviders,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -1430,6 +1437,12 @@ export function usePlugins(
     return runtime.runCodeRequest(pluginId, providerId, request, workspaceScope, signal);
   }, []);
 
+  const parseToolOutput = useCallback((pluginId: string, providerId: string, request: PluginToolParseRequest, workspaceScope: string) => {
+    const runtime = runtimeRef.current;
+    if (!runtime || !contentAvailableRef.current) throw new Error("Tooling is unavailable after a vault switch or lock.");
+    return runtime.parseToolOutput(pluginId, providerId, request, workspaceScope);
+  }, []);
+
   const shutdown = useCallback(async () => {
     startsAllowedRef.current = false;
     await Promise.allSettled([...emojiWritesRef.current.values()]);
@@ -1452,6 +1465,8 @@ export function usePlugins(
     authoringProviders,
     requestAuthoring,
     codeProviders: contentAvailable ? codeProviders : [],
+    toolProviders: contentAvailable ? toolProviders : [],
+    parseToolOutput,
     runCodeRequest,
     plugins,
     bundles,
@@ -1516,7 +1531,7 @@ function requiresContent(plugin: PluginView): boolean {
   const hasClocks = plugin.approvedPermissions.some((permission) => permission.capability === "clocks");
   return plugin.approvedPermissions.some((permission) =>
     (permission.capability === "time-tracking" && !hasClocks) ||
-    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence", "text-styling", "note-comments", "presentation", "speech", "credential-store"].includes(
+    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence", "tooling", "terminal", "text-styling", "note-comments", "presentation", "speech", "credential-store"].includes(
       permission.capability,
     ),
   );

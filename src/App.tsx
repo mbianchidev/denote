@@ -63,6 +63,8 @@ import type {
 } from "@denote/plugin-sdk";
 import { codeLanguageForPath, isCodePath, isCodeRange } from "@denote/plugin-sdk";
 import { CodeIntelligenceHost, codeRequestCancelled } from "./plugins/codeHost";
+import { ToolingHost } from "./plugins/toolingHost";
+import { TerminalHost } from "./plugins/terminalHost";
 import { CodeTooltips } from "./lib/codeEditor";
 import { ActivityRail } from "./components/ActivityRail";
 import {
@@ -410,6 +412,12 @@ const MarkdownEditor = lazy(() =>
 );
 const CodeToolPanel = lazy(() =>
   import("./components/CodeToolPanel").then((module) => ({ default: module.CodeToolPanel })),
+);
+const ProjectToolPanel = lazy(() =>
+  import("./components/ProjectToolPanel").then((module) => ({ default: module.ProjectToolPanel })),
+);
+const TerminalPanel = lazy(() =>
+  import("./components/TerminalPanel").then((module) => ({ default: module.TerminalPanel })),
 );
 const AdvancedAuthoring = lazy(() =>
   import("./components/AdvancedAuthoring").then((module) => ({ default: module.AdvancedAuthoring })),
@@ -1743,6 +1751,15 @@ function App() {
     }),
   );
   const [codeHost] = useState(() => new CodeIntelligenceHost(showError));
+  const [toolingHost] = useState(() => new ToolingHost(showError));
+  const [terminalHost] = useState(() => new TerminalHost(showError));
+  const confirmTerminalShutdown = useCallback((action: string): Promise<boolean> => !terminalHost.hasRunning()
+    ? Promise.resolve(true)
+    : requestConfirmation({
+      title: `${action} with running terminals?`,
+      message: "This terminates every terminal shell and its running jobs. Save work inside terminals first.",
+      confirmLabel: `Terminate terminals and ${action.toLowerCase()}`, dangerous: false,
+    }), [terminalHost, requestConfirmation]);
   const [nativeFullscreenHost] = useState(() => new NativeFullscreenHost(getCurrentWindow()));
   useEffect(() => {
     nativeFullscreenHost.activate();
@@ -1847,6 +1864,34 @@ function App() {
     setActiveTimeTracking(null);
   }, [codeProvider]);
   const activeCodeProvider = codeProvider?.id === activePluginSidebar ? codeProvider : null;
+  const toolProviders = useMemo(() => (pluginController.toolProviders ?? []).filter((provider) =>
+    !pluginController.busyPluginIds.has(provider.pluginId) &&
+    pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)),
+  [pluginController.toolProviders, pluginController.busyPluginIds, pluginController.plugins]);
+  const projectToolProviders = useMemo(() => toolProviders.filter((provider) => provider.kind !== "terminal"), [toolProviders]);
+  const terminalProviders = useMemo(() => toolProviders.filter((provider) => provider.kind === "terminal"), [toolProviders]);
+  const activeProjectTool = projectToolProviders.find((provider) => provider.id === activePluginSidebar) ?? null;
+  const activeTerminalProvider = terminalProviders.find((provider) => provider.id === activePluginSidebar) ?? null;
+  useLayoutEffect(() => {
+    const identity = `${pluginProjectContext?.projectId ?? ""}:${pluginProjectContext?.rootPath ?? ""}`;
+    toolingHost.configure(projectToolProviders, pluginController.parseToolOutput, workspace?.vaultPath ?? null, identity, workspace?.encryption.enabled ?? false);
+    terminalHost.configure(terminalProviders, workspace?.vaultPath ?? null, identity, workspace?.encryption.enabled ?? false);
+  }, [toolingHost, terminalHost, projectToolProviders, terminalProviders, pluginController.parseToolOutput,
+    workspace?.vaultPath, workspace?.encryption.enabled, pluginProjectContext?.projectId, pluginProjectContext?.rootPath]);
+  useLayoutEffect(() => {
+    if (!projectToolProviders.length || !workspace || workspace.encryption.enabled) return;
+    toolingHost.setFiles(allFiles.filter((file) => file.kind !== "folder" && file.kind !== "image" && file.kind !== "pdf" &&
+      file.size <= 4 * 1024 * 1024).map((file) => file.path), ignoredPaths);
+  }, [toolingHost, projectToolProviders, workspace?.vaultPath, workspace?.encryption.enabled, allFiles, ignoredPaths]);
+  useLayoutEffect(() => {
+    if (!projectToolProviders.length || !workspace || workspace.encryption.enabled) return;
+    toolingHost.syncDocuments([...new Map(panes.flatMap((pane) => pane.tabs).filter((tab) =>
+      !tab.placeholder && !tab.transient && tab.kind !== "pdf" && tab.encoding === "utf8").map((tab) => [tab.path, {
+        path: tab.path, content: tab.content, savedContent: tab.savedContent, savedHash: tab.savedHash, lineEnding: tab.lineEnding,
+        projectId: closestAvailableProjectRoot(workspace.projectRoots, tab.path)?.id ?? null,
+      }])).values()]);
+  }, [toolingHost, projectToolProviders, panes, workspace]);
+  useEffect(() => () => { toolingHost.dispose(); terminalHost.dispose(); }, [toolingHost, terminalHost]);
   const [noteGraphCoordinator] = useState(
     () => new NoteGraphCoordinator(),
   );
@@ -3737,6 +3782,7 @@ function App() {
 
   const chooseVault = useCallback(async () => {
     setVaultSwitcherOpen(false);
+    if (!await confirmTerminalShutdown("Switch vaults")) return;
     setInitializing(true);
     try {
       if (!(await beginWorkspaceOperationRef.current())) {
@@ -3754,10 +3800,11 @@ function App() {
       setInitializing(false);
       setWorkspaceLock(false);
     }
-  }, [loadWorkspace, setWorkspaceLock, showError]);
+  }, [loadWorkspace, setWorkspaceLock, showError, confirmTerminalShutdown]);
 
   const switchKnownVault = useCallback(
     async (vaultId: number, filePath?: string) => {
+      if (!await confirmTerminalShutdown("Switch vaults")) return;
       setInitializing(true);
       try {
         if (!(await beginWorkspaceOperationRef.current())) {
@@ -3786,7 +3833,7 @@ function App() {
         setWorkspaceLock(false);
       }
     },
-    [loadWorkspace, setWorkspaceLock],
+    [loadWorkspace, setWorkspaceLock, confirmTerminalShutdown],
   );
 
   const deleteKnownVault = useCallback(
@@ -3811,6 +3858,7 @@ function App() {
 
   const enableVaultEncryption = useCallback(
     async (password: string): Promise<string[]> => {
+      if (!await confirmTerminalShutdown("Enable encryption")) throw new Error("Vault encryption was cancelled.");
       if (!(await beginWorkspaceOperationRef.current())) {
         throw new Error("Encryption cancelled because a file could not be saved.");
       }
@@ -3838,7 +3886,7 @@ function App() {
         setWorkspaceLock(false);
       }
     },
-    [applyEncryptionSnapshot, setWorkspaceLock, showError],
+    [applyEncryptionSnapshot, setWorkspaceLock, showError, confirmTerminalShutdown],
   );
 
   const lockEncryptedVault = useCallback(async () => {
@@ -3996,6 +4044,9 @@ function App() {
                   `Source was saved, but the language server did not receive the save notification: ${errorMessage(caught)}`,
                 ));
               });
+              void toolingHost.saved(path, content, outcome.contentHash).catch((caught) => {
+                showError(new Error(`Source was saved, but tooling did not receive the save notification: ${errorMessage(caught)}`));
+              });
             }
             if (expectedVaultGeneration === vaultGeneration.current) scheduleIndexRebuild([path]);
             if (isGitignorePath(path)) {
@@ -4034,6 +4085,7 @@ function App() {
     [
       commitTabs,
       codeHost,
+      toolingHost,
       refreshIgnoredStatus,
       scheduleIndexRebuild,
       showError,
@@ -4416,6 +4468,10 @@ function App() {
       return;
     }
     closingWindow.current = true;
+    if (!await confirmTerminalShutdown("Quit")) {
+      closingWindow.current = false;
+      return;
+    }
     await Promise.all([...criticalOperations.current]);
     if (await beginWorkspaceOperationRef.current()) {
       try {
@@ -4432,7 +4488,7 @@ function App() {
       setWorkspaceLock(false);
       setStatus("Close cancelled because a note could not be saved");
     }
-  }, [setWorkspaceLock, showError, shutdownPlugins]);
+  }, [setWorkspaceLock, showError, shutdownPlugins, confirmTerminalShutdown]);
 
   useEffect(() => {
     let unlistenClose: (() => void) | undefined;
@@ -5310,6 +5366,7 @@ function App() {
         return;
       }
 
+      if (!await confirmTerminalShutdown("Switch vaults")) return;
       setInitializing(true);
       try {
         if (!(await beginWorkspaceOperationRef.current())) {
@@ -5340,7 +5397,7 @@ function App() {
         setWorkspaceLock(false);
       }
     },
-    [loadWorkspace, openFile, setWorkspaceLock, switchKnownVault, workspace],
+    [loadWorkspace, openFile, setWorkspaceLock, switchKnownVault, workspace, confirmTerminalShutdown],
   );
   appLinkHandlerRef.current = openAppLink;
 
@@ -10527,8 +10584,10 @@ function App() {
                   ? sourceNavigation
                   : undefined
               }
-              code={codeProvider && !workspace.encryption.enabled && paneTab.encoding === "utf8" && codeLanguageForPath(paneTab.path) ? {
-                host: codeHost, path: paneTab.path, projectId: paneProject?.id ?? null,
+              code={!workspace.encryption.enabled && paneTab.encoding === "utf8" &&
+                ((codeProvider && codeLanguageForPath(paneTab.path)) || projectToolProviders.length > 0) ? {
+                host: codeHost, tooling: projectToolProviders.length ? toolingHost : undefined,
+                path: paneTab.path, projectId: paneProject?.id ?? null,
                 onNavigate: openCodeLocation, onResults: showCodeTools, onError: showError,
               } : undefined}
               onCursorChange={(position) => codeCursorPositions.current.set(paneTab.path, position)}
@@ -10741,6 +10800,8 @@ function App() {
           providerId: timeViews.find((provider) => provider.pluginId === activeTimeTracking.pluginId)?.id ?? activeTimeTracking.providerId,
         } : null}
         pluginViews={pluginController.sidebarViews}
+        toolProviders={pluginController.toolProviders}
+        codeProviders={pluginController.codeProviders}
         sensitiveTools={sensitiveTools}
         sourceControlProviders={pluginController.sourceControlProviders}
         noteGraphs={noteGraphs}
@@ -10812,7 +10873,18 @@ function App() {
             </button>
           </div>
         </header>
-        {activeSensitiveTool?.feature === "credential-store" && !workspaceLocked ? (
+        {terminalProviders.map((provider) => <div key={`${workspace.vaultPath}:${provider.id}`}
+          className="terminal-slot" hidden={activeTerminalProvider?.id !== provider.id}>
+          <Suspense fallback={<p role="status">Loading terminal…</p>}>
+            <TerminalPanel provider={provider} host={terminalHost} projectId={activeProject?.id ?? null}
+              workspaceScope={workspace.vaultPath} encrypted={workspace.encryption.enabled}
+              active={activeTerminalProvider?.id === provider.id}
+              files={allFiles.filter((file) => file.kind !== "folder").map((file) => file.path)}
+              confirmAction={requestConfirmation} onNavigate={openCodeLocation}
+              onOpenExternal={(url) => openWebLinksWithPolicy([url], externalDomainPolicy, undefined, true)} />
+          </Suspense>
+        </div>)}
+        {activeTerminalProvider ? null : activeSensitiveTool?.feature === "credential-store" && !workspaceLocked ? (
           <Suspense fallback={<p role="status">Opening credential store…</p>}>
             <CredentialStorePanel key={`${workspace.vaultPath}:${activeSensitiveTool.pluginId}`} pluginId={activeSensitiveTool.pluginId}
               workspaceScope={workspace.vaultPath} onClose={() => showSidebarView("files")}
@@ -10936,6 +11008,12 @@ function App() {
             <CodeToolPanel provider={activeCodeProvider} host={codeHost} projectId={activeProject?.id ?? null}
               documentPath={activeFileTab?.path ?? null} files={allFiles.filter((file) => file.kind !== "folder").map((file) => file.path)}
               encrypted={workspace.encryption.enabled} onNavigate={openCodeLocation} />
+          </Suspense>
+        ) : activeProjectTool ? (
+          <Suspense fallback={<p role="status">Loading project tools…</p>}>
+            <ProjectToolPanel provider={activeProjectTool} host={toolingHost} projectId={activeProject?.id ?? null}
+              documentPath={activeFileTab?.path ?? null} encrypted={workspace.encryption.enabled}
+              onSaveAll={() => flushAllTabsRef.current()} onNavigate={openCodeLocation} />
           </Suspense>
         ) : activePluginSidebarView ? (
           <div className="sidebar-view plugin-sidebar-view">

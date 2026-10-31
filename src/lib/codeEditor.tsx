@@ -7,10 +7,12 @@ import { createPortal } from "react-dom";
 import type { PluginCodeFeature, PluginCodeLocation, PluginCodePosition } from "@denote/plugin-sdk";
 import { PluginMarkdown } from "../components/PluginGuide";
 import { CodeIntelligenceHost, codeRequestCancelled } from "../plugins/codeHost";
+import type { ToolingHost } from "../plugins/toolingHost";
 import { codeEditOffsets, codePositionOffset } from "./codeTools";
 
 export interface CodeEditorBinding {
   host: CodeIntelligenceHost;
+  tooling?: ToolingHost;
   path: string;
   projectId: string | null;
   onNavigate: (location: PluginCodeLocation) => Promise<void>;
@@ -46,6 +48,15 @@ export function createCodeIntelligenceExtensions(getBinding: () => CodeEditorBin
   return [
     ViewPlugin.define((view) => {
       let release: () => Promise<void> = async () => {};
+      const releaseTooling = initial.tooling?.attach(path, {
+        readOnly: () => view.state.facet(EditorState.readOnly),
+        apply(source, fix) {
+          if (view.state.facet(EditorState.readOnly) || view.state.sliceDoc() !== source) {
+            throw new Error("The source changed or became read-only; the previewed fix was not applied.");
+          }
+          view.dispatch({ changes: { from: fix.from, to: fix.to, insert: fix.text }, userEvent: "input.linter-fix" });
+        },
+      });
       try {
         release = host.attach(path, projectId, view.state.sliceDoc(), {
           readOnly: () => view.state.facet(EditorState.readOnly),
@@ -64,7 +75,7 @@ export function createCodeIntelligenceExtensions(getBinding: () => CodeEditorBin
         refreshing = true;
         void host.modelForDocument(path).then((model) => {
           if (!alive) return;
-          const diagnostics = model.diagnostics ?? [];
+          const diagnostics = [...(model.diagnostics ?? []), ...(initial.tooling?.diagnosticsForEditor(path) ?? [])];
           const fingerprint = JSON.stringify(diagnostics);
           if (fingerprint === lastDiagnostics) return;
           lastDiagnostics = fingerprint;
@@ -77,12 +88,17 @@ export function createCodeIntelligenceExtensions(getBinding: () => CodeEditorBin
         }).catch(report).finally(() => { refreshing = false; });
       };
       const unsubscribe = host.subscribe(refresh);
+      const unsubscribeTooling = initial.tooling?.subscribe(refresh);
+      queueMicrotask(refresh);
       return {
         update(update) {
-          if (update.docChanged) host.update(path, update.state.sliceDoc());
+          if (update.docChanged) {
+            host.update(path, update.state.sliceDoc());
+            initial.tooling?.update(path, update.state.sliceDoc());
+          }
           if (update.docChanged || update.selectionSet) host.setCursor(path, position(update.view));
         },
-        destroy() { alive = false; unsubscribe(); void release().catch(report); },
+        destroy() { alive = false; unsubscribe(); unsubscribeTooling?.(); releaseTooling?.(); void release().catch(report); },
       };
     }),
     lintGutter(),

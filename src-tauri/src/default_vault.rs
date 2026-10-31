@@ -19,6 +19,7 @@ const PLUGIN_EXAMPLE_V4_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v4";
 const PLUGIN_EXAMPLE_V5_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v5";
 const PLUGIN_EXAMPLE_V6_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v6";
 const PLUGIN_EXAMPLE_V7_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v7";
+const PLUGIN_EXAMPLE_V8_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v8";
 const PLUGIN_EXAMPLE_V1_PATH: &str = "plugins/Kanban board.kanban.md";
 const PLUGIN_EXAMPLE_V2_PATHS: &[&str] = &[
     "plugins/README.md",
@@ -43,7 +44,24 @@ const PLUGIN_EXAMPLE_V6_PATHS: &[&str] = &[
     "plugins/Presentation.md",
 ];
 const PLUGIN_EXAMPLE_V7_PATHS: &[&str] = &["plugins/Speech.md", "plugins/Credential store.md"];
+const PLUGIN_EXAMPLE_V8_PATHS: &[&str] = &[
+    "plugins/Linter.md",
+    "plugins/Build and compiler.md",
+    "plugins/Ghostty terminal.md",
+];
 const SEED_FILES: &[(&str, &[u8])] = &[
+    (
+        "plugins/Linter.md",
+        include_bytes!("../../docs/user-guide/plugins/Linter.md"),
+    ),
+    (
+        "plugins/Build and compiler.md",
+        include_bytes!("../../docs/user-guide/plugins/Build and compiler.md"),
+    ),
+    (
+        "plugins/Ghostty terminal.md",
+        include_bytes!("../../docs/user-guide/plugins/Ghostty terminal.md"),
+    ),
     (
         "plugins/Speech.md",
         include_bytes!("../../docs/user-guide/plugins/Speech.md"),
@@ -706,6 +724,13 @@ fn add_missing_plugin_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -
         PLUGIN_EXAMPLE_V7_FIXTURE_MARKER,
         |path| PLUGIN_EXAMPLE_V7_PATHS.contains(&path),
         "plugin example v7",
+    )?;
+    add_missing_seed_collection_once(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V8_FIXTURE_MARKER,
+        |path| PLUGIN_EXAMPLE_V8_PATHS.contains(&path),
+        "plugin example v8",
     )
 }
 
@@ -836,6 +861,18 @@ fn write_plugin_example_fixture_markers(
         vault_key,
         PLUGIN_EXAMPLE_V6_FIXTURE_MARKER,
         "plugin example v6",
+    )?;
+    write_seed_collection_marker(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V7_FIXTURE_MARKER,
+        "plugin example v7",
+    )?;
+    write_seed_collection_marker(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V8_FIXTURE_MARKER,
+        "plugin example v8",
     )
 }
 
@@ -1062,6 +1099,76 @@ mod tests {
     }
 
     #[test]
+    fn plugin_v8_preserves_previous_markers_and_never_restores_deleted_examples() {
+        let directory = tempdir().unwrap();
+        let root = directory.path();
+        fs::create_dir_all(root.join(".denote/fixtures")).unwrap();
+        fs::create_dir(root.join("plugins")).unwrap();
+        let older = [
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V5_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V6_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V7_FIXTURE_MARKER,
+        ];
+        for marker in older {
+            fs::write(root.join(marker), b"Retained earlier marker\n").unwrap();
+        }
+        fs::write(root.join("plugins/Linter.md"), b"Retained custom example\n").unwrap();
+        add_missing_plugin_examples_once(root, None).unwrap();
+        assert_eq!(
+            fs::read(root.join("plugins/Linter.md")).unwrap(),
+            b"Retained custom example\n"
+        );
+        assert!(root.join("plugins/Build and compiler.md").is_file());
+        assert!(root.join("plugins/Ghostty terminal.md").is_file());
+        fs::remove_file(root.join("plugins/Build and compiler.md")).unwrap();
+        add_missing_plugin_examples_once(root, None).unwrap();
+        assert!(!root.join("plugins/Build and compiler.md").exists());
+        for marker in older {
+            assert_eq!(
+                fs::read(root.join(marker)).unwrap(),
+                b"Retained earlier marker\n"
+            );
+        }
+    }
+
+    #[test]
+    fn plugin_v8_defers_while_locked_and_adds_only_ciphertext_after_unlock() {
+        let directory = tempdir().unwrap();
+        let root = directory.path();
+        fs::create_dir_all(root.join(".denote/fixtures")).unwrap();
+        let (mut manifest, vault_key, _) =
+            crate::crypto::create_manifest("Synthetic tooling example passphrase").unwrap();
+        manifest.phase = crate::crypto::EncryptionPhase::Encrypted;
+        crate::crypto::save_manifest(root, &manifest).unwrap();
+        add_missing_plugin_examples_once(root, None).unwrap();
+        assert!(!root.join(PLUGIN_EXAMPLE_V8_FIXTURE_MARKER).exists());
+        assert!(!root.join("plugins/Linter.md").exists());
+        let key = vault_key.copy_bytes();
+        add_missing_plugin_examples_once(root, Some(&key)).unwrap();
+        for path in PLUGIN_EXAMPLE_V8_PATHS {
+            let bytes = fs::read(root.join(path)).unwrap();
+            let (_, expected) = SEED_FILES
+                .iter()
+                .find(|(candidate, _)| candidate == path)
+                .unwrap();
+            assert_ne!(bytes.as_slice(), *expected);
+            assert_eq!(
+                crate::crypto::decrypt_file_content(&key, &bytes).unwrap(),
+                *expected
+            );
+        }
+        let marker = fs::read(root.join(PLUGIN_EXAMPLE_V8_FIXTURE_MARKER)).unwrap();
+        assert_eq!(
+            crate::crypto::decrypt_file_content(&key, &marker).unwrap(),
+            b"applied\n"
+        );
+    }
+
+    #[test]
     fn plugin_examples_cover_every_user_facing_catalog_entry() {
         let examples: &[(&str, &[&str])] = &[
             (
@@ -1098,6 +1205,9 @@ mod tests {
             ("denote.presentations", &["plugins/Presentation.md"]),
             ("denote.speech", &["plugins/Speech.md"]),
             ("denote.credential-store", &["plugins/Credential store.md"]),
+            ("denote.linter", &["plugins/Linter.md"]),
+            ("denote.compiler", &["plugins/Build and compiler.md"]),
+            ("denote.terminal", &["plugins/Ghostty terminal.md"]),
             (
                 "denote.code-intelligence",
                 &["plugins/Code intelligence.md"],
@@ -1147,6 +1257,7 @@ mod tests {
                 - PLUGIN_EXAMPLE_V5_PATHS.len()
                 - PLUGIN_EXAMPLE_V6_PATHS.len()
                 - PLUGIN_EXAMPLE_V7_PATHS.len()
+                - PLUGIN_EXAMPLE_V8_PATHS.len()
         );
         assert_eq!(
             PLUGIN_EXAMPLE_V2_PATHS
@@ -1162,6 +1273,7 @@ mod tests {
                         && !PLUGIN_EXAMPLE_V5_PATHS.contains(path)
                         && !PLUGIN_EXAMPLE_V6_PATHS.contains(path)
                         && !PLUGIN_EXAMPLE_V7_PATHS.contains(path)
+                        && !PLUGIN_EXAMPLE_V8_PATHS.contains(path)
                 })
                 .collect::<BTreeSet<_>>()
         );
