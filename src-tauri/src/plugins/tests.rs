@@ -1149,13 +1149,18 @@ fn embedded_bundle_metadata_is_valid_and_exposes_code_tooling_roles() {
             vec!["denote.code-intelligence".to_string()]
         );
     }
-    assert!(
-        code_tooling
+    for (role_id, candidate) in [
+        ("terminal", "denote.terminal"),
+        ("linter", "denote.linter"),
+        ("compiler", "denote.compiler"),
+    ] {
+        let role = code_tooling
             .roles
             .iter()
-            .filter(|role| matches!(role.id.as_str(), "terminal" | "linter" | "compiler"))
-            .all(|role| role.candidate_plugin_ids.is_empty())
-    );
+            .find(|role| role.id == role_id)
+            .expect("tooling role");
+        assert_eq!(role.candidate_plugin_ids, vec![candidate.to_string()]);
+    }
 }
 
 #[test]
