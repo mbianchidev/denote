@@ -1,6 +1,7 @@
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
 import type {
+  PluginSensitiveToolRegistration,
   PluginAuthoringRequest,
   PluginAuthoringResult,
   PluginCalendarModel,
@@ -40,6 +41,7 @@ import type {
   PluginClockRequest,
 } from "@denote/plugin-sdk";
 import {
+  isPluginSensitiveToolRegistration,
   isPluginAuthoringRegistration,
   isPluginAuthoringRequest,
   isPluginAuthoringResultFor,
@@ -144,6 +146,10 @@ const NOTE_GRAPH_OPERATION_TIMEOUT_MS = 30_000;
 const TASK_LIST_OPERATION_TIMEOUT_MS = 30_000;
 const REMINDER_OPERATION_TIMEOUT_MS = 15_000;
 
+export interface PluginSensitiveToolContribution extends PluginSensitiveToolRegistration {
+  pluginId: string;
+}
+
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -176,6 +182,8 @@ interface PendingHandshake {
 }
 
 interface Runtime {
+  sensitiveTools: Map<string, PluginSensitiveToolContribution>;
+  stagedSensitiveTools: Map<string, PluginSensitiveToolContribution>;
   authoringProviders: Map<string, PluginAuthoringContribution>;
   stagedAuthoringProviders: Map<string, PluginAuthoringContribution>;
   codeProviders: Map<string, PluginCodeContribution>;
@@ -301,6 +309,7 @@ export class PluginWorkerRuntime {
     private readonly onTimeTrackersChanged: (providers: PluginTimeTrackingContribution[]) => void = () => {},
     private readonly onClocksChanged: (providers: PluginClockContribution[]) => void = () => {},
     private readonly onAuthoringChanged: (providers: PluginAuthoringContribution[]) => void = () => {},
+    private readonly onSensitiveToolsChanged: (tools: PluginSensitiveToolContribution[]) => void = () => {},
   ) {}
 
   async requestAuthoring(pluginId: string, providerId: string, request: PluginAuthoringRequest): Promise<PluginAuthoringResult> {
@@ -1193,6 +1202,8 @@ export class PluginWorkerRuntime {
     });
     const channel = new MessageChannel();
     const runtime: Runtime = {
+      sensitiveTools: new Map(),
+      stagedSensitiveTools: new Map(),
       authoringProviders: new Map(),
       stagedAuthoringProviders: new Map(),
       codeProviders: new Map(),
@@ -1310,6 +1321,8 @@ export class PluginWorkerRuntime {
       this.assertCurrent(pluginId, generation);
       runtime.activated = true;
       runtime.phase = "active";
+      for (const [id, tool] of runtime.stagedSensitiveTools) runtime.sensitiveTools.set(id, tool);
+      runtime.stagedSensitiveTools.clear();
       for (const [id, provider] of runtime.stagedAuthoringProviders) runtime.authoringProviders.set(id, provider);
       runtime.stagedAuthoringProviders.clear();
       this.publishAuthoring();
@@ -1828,6 +1841,24 @@ export class PluginWorkerRuntime {
         runtime.noteGraphs.delete(message.id);
         runtime.stagedNoteGraphs.delete(message.id);
         this.publishNoteGraphs();
+        return;
+      case "register-sensitive-tool": {
+        if ((runtime.phase !== "activating" && runtime.phase !== "active") ||
+            !isPluginSensitiveToolRegistration(message) || !message.id.startsWith(`${pluginId}.`) ||
+            !runtime.permissions.has(message.feature) ||
+            runtime.sensitiveTools.size + runtime.stagedSensitiveTools.size !== 0) {
+          void this.failRuntime(pluginId, new Error("Unauthorized or duplicate sensitive tool registration."));
+          return;
+        }
+        const tools = runtime.activated ? runtime.sensitiveTools : runtime.stagedSensitiveTools;
+        tools.set(message.id, { pluginId, id: message.id, title: message.title, feature: message.feature });
+        if (runtime.activated) this.publishAuthoring();
+        return;
+      }
+      case "unregister-sensitive-tool":
+        runtime.sensitiveTools.delete(message.id);
+        runtime.stagedSensitiveTools.delete(message.id);
+        this.publishAuthoring();
         return;
       case "register-authoring": {
         if ((runtime.phase !== "activating" && runtime.phase !== "active") ||
@@ -2434,6 +2465,11 @@ export class PluginWorkerRuntime {
       return;
     }
     runtime.phase = "stopping";
+    this.publishAuthoring();
+    if (runtime.permissions.has("speech") || runtime.permissions.has("credential-store")) {
+      try { await api.stopSensitiveTools(pluginId); }
+      catch (error) { this.onError(pluginId, error); }
+    }
     this.publishCodeProviders();
     if (runtime.permissions.has("code-intelligence")) {
       try { await api.stopCodeSessions(pluginId); }
@@ -2477,6 +2513,9 @@ export class PluginWorkerRuntime {
   }
 
   private publishAuthoring(): void {
+    this.onSensitiveToolsChanged([...this.runtimes.values()].flatMap((runtime) =>
+      runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
+        ? [...runtime.sensitiveTools.values()] : []));
     this.onAuthoringChanged([...this.runtimes.values()].flatMap((runtime) =>
       runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
         ? [...runtime.authoringProviders.values()] : []));

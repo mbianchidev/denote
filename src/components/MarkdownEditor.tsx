@@ -153,7 +153,11 @@ import {
 } from "../lib/richTextInputPlugin";
 import { EmojiToolbarActions } from "./EmojiPicker";
 import { AuthoringRichContext, styledLiteralRanges, styledMarkdownPlugin } from "./StyledMarkdownNode";
+import { AudioRenderContext, audioMarkdownPlugin } from "./AudioMarkdownNode";
+import type { SpeechAudioBinding } from "../lib/speech";
 import type { AuthoringEditorBinding } from "../lib/authoring";
+import { preserveRichSourceFormatting } from "../lib/richSourceFormatting";
+import { markdownSourceMarkersPlugin, withOriginalListMarkers } from "../lib/markdownSourceMarkers";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
@@ -300,7 +304,7 @@ const standardMarkdownCompatibilityPlugin = realmPlugin({
       {
         handlers: {
           root(node, parent, state, info) {
-            state.unsafe = state.unsafe.map((rule): Unsafe => {
+            state.unsafe = state.unsafe.flatMap((rule): Unsafe | Unsafe[] => {
               // A directive colon is not syntax inside a URI destination or mailto scheme.
               if (
                 rule.character === ":" &&
@@ -329,9 +333,22 @@ const standardMarkdownCompatibilityPlugin = realmPlugin({
                   inConstruct: rule.inConstruct,
                 };
               }
+              if (rule.character === "=" && rule.atBreak) {
+                return {
+                  character: "=",
+                  before: "[^\\r\\n][\\r\\n][ \\t]{0,3}",
+                  after: "=*[ \\t]*(?:[\\r\\n]|$)",
+                };
+              }
+              if (rule.character === "=" && rule.inConstruct === "phrasing" && !rule.before && !rule.after) {
+                return [
+                  { character: "=", before: "=", inConstruct: rule.inConstruct, notInConstruct: rule.notInConstruct },
+                  { character: "=", after: "=", inConstruct: rule.inConstruct, notInConstruct: rule.notInConstruct },
+                ];
+              }
               return rule;
             });
-            return defaultHandlers.root(node, parent, state, info);
+            return withOriginalListMarkers(state, () => defaultHandlers.root(node, parent, state, info));
           },
         },
       },
@@ -355,6 +372,7 @@ interface MarkdownEditorProps {
   emojiPickers?: EmojiContribution[];
   diagrams?: DiagramEditorBinding;
   authoring?: AuthoringEditorBinding;
+  audio?: SpeechAudioBinding;
   preferredViewMode: MarkdownViewMode;
   projectSourceMode?: boolean;
   readOnly: boolean;
@@ -394,6 +412,7 @@ export const MarkdownEditor = forwardRef<
     emojiPickers = EMPTY_EMOJI_PICKERS,
     diagrams,
     authoring,
+    audio,
     preferredViewMode,
     projectSourceMode = false,
     readOnly,
@@ -665,6 +684,7 @@ export const MarkdownEditor = forwardRef<
       denoteTaskListShortcutPlugin(),
       denoteHashtagPlugin(),
       ...(authoring ? [styledMarkdownPlugin({ binding: authoring, source: () => editorSourceRef.current })] : []),
+      ...(audio ? [audioMarkdownPlugin({ source: () => emojiSourceRef.current })] : []),
       emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),
       linkPlugin({ disableAutoLink: false }),
@@ -720,6 +740,7 @@ export const MarkdownEditor = forwardRef<
       safeRichHtmlPlugin(),
       referenceMarkdownPlugin({ snapshot: referenceSnapshotRef }),
       standardMarkdownCompatibilityPlugin(),
+      markdownSourceMarkersPlugin({ source: () => editorSourceRef.current }),
       viewModePreferencePlugin({
         mode: realmInitialViewMode,
         isSourceForced: () => sourceForcedRef.current,
@@ -861,6 +882,7 @@ export const MarkdownEditor = forwardRef<
       emojiSourceExtensions,
       emojiSerialization,
       authoring,
+      Boolean(audio),
       preferredViewMode,
       projectSourceMode,
       readOnly,
@@ -1114,6 +1136,7 @@ export const MarkdownEditor = forwardRef<
       } : null}>
       <EmojiRichContext.Provider value={emojiRichBinding}>
       <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
+        <AudioRenderContext.Provider value={audio}>
         <DiagramCodeBlockSettingsProvider binding={diagrams}>
         <DenoteCodeBlockEditorSettingsProvider
           readOnly={readOnly}
@@ -1121,7 +1144,7 @@ export const MarkdownEditor = forwardRef<
           onError={onCodeBlockError}
         >
           <MDXEditor
-          key={`${htmlProcessing ? "details-html" : "standard-markdown"}:${diagrams?.renderers.map((renderer) => renderer.id).join(",") ?? "no-diagrams"}`}
+          key={`${htmlProcessing ? "details-html" : "standard-markdown"}:${diagrams?.renderers.map((renderer) => renderer.id).join(",") ?? "no-diagrams"}:${Boolean(audio)}`}
             ref={ref}
             markdown={editorSource}
             plugins={plugins}
@@ -1178,7 +1201,9 @@ export const MarkdownEditor = forwardRef<
                       )
                     : restoredMarkdown;
                 const markerUpdate = applyTocMarkerViewChange(
-                  normalizedMarkdown,
+                  activeViewModeRef.current === "rich-text"
+                    ? preserveRichSourceFormatting(normalizedMarkdown, serialization.current)
+                    : normalizedMarkdown,
                   tocMarkersRef.current!,
                   activeViewModeRef.current,
                   parse,
@@ -1193,7 +1218,7 @@ export const MarkdownEditor = forwardRef<
                 if (activeViewModeRef.current === "rich-text") {
                   output = restoreRichTextBoundarySpaces(output, parse);
                 }
-                if (sourceLineBreak !== "\n" && activeViewModeRef.current === "source") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
+                if (sourceLineBreak !== "\n") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
                 if (activeViewModeRef.current === "source") {
                   boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
                 }
@@ -1216,6 +1241,7 @@ export const MarkdownEditor = forwardRef<
           />
         </DenoteCodeBlockEditorSettingsProvider>
         </DiagramCodeBlockSettingsProvider>
+        </AudioRenderContext.Provider>
       </SafeRichHtmlRenderProvider>
       </EmojiRichContext.Provider>
       </AuthoringRichContext.Provider>

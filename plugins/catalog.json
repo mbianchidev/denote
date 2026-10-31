@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.reference-0.1.2.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.reference-0.1.2.tgz",
       "sha256": "f8685b04180a2029d899c341ee0bd50ceb1ce4d44fe9d2c0bc069a57c77f38f9",
       "sizeBytes": 16084
     },
@@ -306,7 +306,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.git-0.10.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.git-0.10.1.tgz",
       "sha256": "d9d92733648e3b8313e8358f567127760bb13d459bce057ef9b5e2345204d730",
       "sizeBytes": 73558
     },
@@ -376,7 +376,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.emoji-picker-0.1.3.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.emoji-picker-0.1.3.tgz",
       "sha256": "442a2737c78f971db58a4fb6d8405a05bf997b5475496b7986ce579e682f95d0",
       "sizeBytes": 105664
     },
@@ -416,7 +416,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.json-yaml-viewer-0.1.3.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.json-yaml-viewer-0.1.3.tgz",
       "sha256": "19f6a7a74932a467e1dd88708ec4cc9b4cd61a4f0537cd65706ca94e4c715157",
       "sizeBytes": 66450
     },
@@ -502,7 +502,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.kanban-0.1.6.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.kanban-0.1.6.tgz",
       "sha256": "b9b26e6f8cccb970b274ee2c55bf877f402152fa52ec5abb8b1e4bae7888e5c1",
       "sizeBytes": 23748
     },
@@ -542,7 +542,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.note-graph-0.1.7.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.note-graph-0.1.7.tgz",
       "sha256": "e27afe2e39b9e9b1ac381f609695c92e7e142e53e6de2db67c3e49a9dc67ccf0",
       "sizeBytes": 74958
     },
@@ -608,7 +608,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.calendar-0.2.2.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.calendar-0.2.2.tgz",
       "sha256": "e8b5339afa63aaa07aad261d42d66d99d60282e4bc56dfb6766dd71411e98329",
       "sizeBytes": 68438
     },
@@ -648,7 +648,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.task-lists-0.1.4.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.task-lists-0.1.4.tgz",
       "sha256": "cee4f007b311b4beb90ee398e3a4b821abca90859f7c9054b628c8528657e238",
       "sizeBytes": 70590
     },
@@ -704,7 +704,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.reminders-0.3.3.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.reminders-0.3.3.tgz",
       "sha256": "b6f6aaaa8cc03e0795432dad10a33c27812422a2e824e5f911582b12c9f3cc4a",
       "sizeBytes": 74588
     },
@@ -750,7 +750,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.code-intelligence-0.1.2.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.code-intelligence-0.1.2.tgz",
       "sha256": "b5a2f08fcaa0049eb828907b72d65b2bcc447ad811d0dc75b8f98b40fcc437cc",
       "sizeBytes": 27285
     },
@@ -796,7 +796,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.time-tracking-0.2.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.time-tracking-0.2.0.tgz",
       "sha256": "ca12c737f5d389e2479bc8c621873ea8b4881be0d371855cb9f44051f8eddaa0",
       "sizeBytes": 26752
     },
@@ -836,7 +836,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.text-styling-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.text-styling-0.1.0.tgz",
       "sha256": "b42ef8cec0d3d0096c994e87c2aa79f0130371e472d4708262184ebbc88ad12c",
       "sizeBytes": 68463
     },
@@ -876,7 +876,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.note-comments-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.note-comments-0.1.0.tgz",
       "sha256": "5946bcb873950a10ec3a0c39138f59f58cda6ba728ccaa9b5d0d07782adf10d9",
       "sizeBytes": 18381
     },
@@ -916,7 +916,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.presentations-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.presentations-0.1.1.tgz",
       "sha256": "1d14fe9de0cb34a53f13a741328b6279fa32f35ad77f9087c3cec4ab68689caf",
       "sizeBytes": 66557
     },
@@ -926,5 +926,85 @@
       "trusted": true
     },
     "guide": "# Markdown presentation slides\n\n## Purpose\n\nAuthor and present ordinary Markdown decks stored in one file. The optional\nplugin is off by default. Standalone `---` and `===` lines are slide separators\nonly after you choose Open as presentation; ordinary notes keep thematic breaks\nand Setext headings.\n\n## Enablement and permissions\n\nEnable Markdown presentation slides in Settings → Plugins. Presentation\npermission allows bounded source parsing and explicit slide reordering. The\nworker returns positions and validated defaults, not HTML, scripts, styles,\nfilesystem access, timers, or encryption keys.\n\n## Usage\n\nOpen a Markdown note and choose Open as presentation, or Command-Option-P on\nmacOS / Ctrl-Alt-P on Windows and Linux. Source and preview share the same\nin-memory file. Moving the source caret selects its slide; preview navigation\nreveals the matching source. Edits use ordinary autosave, revision history, and\nconflict checks.\n\n```markdown\n# Example deck\n\nA small Markdown presentation.\n\n---\n\n## Formatting\n\nUse *emphasis* and **bold** text.\n\n---\n\n## Last slide\n\nUse `---` to separate slides.\n```\n\nOptional opening YAML frontmatter configures the presentation:\n\n```markdown\n---\ntitle: Synthetic deck\nauthor: Example team\npresentation:\n  theme: dark\n  aspect-ratio: \"16:9\"\n  alignment: left\n  slide-numbers: true\n  autoplay: false\n  advance-seconds: 10\n  loop: false\n  transition: none\n---\n# First slide\n\n---\n\n# Second slide\n```\n\nOnly a line containing exactly `---` or `===` is a separator. An opening\n`---` frontmatter block is metadata, not a slide; fenced-code contents are not\nsplit. Empty slides and unclosed fences produce non-blocking feedback.\nOverview navigates slides and offers Earlier/Later reorder actions by pointer\nor keyboard. Reordering preserves frontmatter, unknown fields, slide slices,\nand separator bytes, adding only a missing boundary newline when necessary.\n\nPresent enters full screen. Arrows, Page Up/Down, Home, and End navigate.\nSpace on the slide toggles playback, P pauses, and Escape exits. Native buttons\nremain keyboard operable. Play, Pause, Restart, Stop, Advance seconds, Loop,\nand a visible countdown remain available. Frontmatter autoplay starts only\nafter an explicit Present action; opening authoring mode never starts it.\nWhere the webview lacks element fullscreen, the trusted host uses its native\nwindow with a modal focus boundary and restores the previous window state.\n\nPlayback uses absolute monotonic deadlines instead of chained relative delays.\nLate ticks catch up without accumulating drift. Manual navigation resets the\ndeadline. Changing interval or loop pauses playback. Hidden windows, lost\nfocus, inactive panes, source edits, exiting full screen, closing the deck,\nand plugin withdrawal pause it; no automatic resume occurs.\n\n## Settings\n\nFrontmatter accepts title and author as single lines of at most 200 UTF-8 bytes.\nThe presentation mapping accepts theme system/dark/light, aspect-ratio 16:9,\n4:3, or 16:10, alignment left/center/right, boolean slide-numbers/autoplay/loop,\nadvance-seconds from 1 to 3600, and transition none/fade. Defaults are system,\n16:9, left, true/false/false, 10 seconds, and none. Invalid fields identify the\ncorrection and use safe defaults. Invalid YAML, aliases, custom tags, duplicate\nkeys, or non-mapping metadata leave Source available and use safe defaults.\nMetadata is never rewritten to apply defaults.\n\nLimits are 4 MiB source, 256 slides, 64 KiB frontmatter, 5,000 YAML nodes,\n64 levels, and 32 notices. The ordinary host renderer provides headings, lists,\ntasks, quotes, tables, links, local/remote image policy, code highlighting, and\ncallouts. Enabled Mermaid renderers may render their own fences; no plugin is\nrequired for ordinary code. Unsafe HTML is not executed. Links keep Denote's\nexisting review flow. Themes remain accessible, forced colors use system\ncolors, and reduced motion disables the optional fade.\n\n## Disable behavior\n\nReturn to note restores ordinary Markdown without rewriting it. Disabling or\nremoving the plugin stops its worker, exits presentation, clears timers,\nlisteners and derived previews, and removes downloaded code. The original\nMarkdown, separators, frontmatter, and unknown fields stay on disk. Locked\nvaults expose no deck content; unlock uses the normal host read boundary.\n\n## Troubleshooting\n\nCorrect frontmatter in Source when a notice names an invalid field. Split an\noversized deck into smaller Markdown files. Full-screen failures are reported;\nthe authoring preview remains available. Correct the source or retry after a\nstale reorder rather than applying an old slide order to a changed deck.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.speech",
+      "name": "Speech, voice notes, and transcription",
+      "version": "0.1.0",
+      "description": "Local voices, private microphone recordings, and reviewable NVIDIA Nemotron transcription.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "accessibility",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.11.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "speech"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.speech-0.1.0.tgz",
+      "sha256": "180f2efeee3058c4f2efae2c59db88ccc2b282579c39d9c7521c7d49e3970c92",
+      "sizeBytes": 16661
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "936caf02b854b2924332625dbf2b215cb69eec74",
+      "trusted": true
+    },
+    "guide": "# Speech, voice notes, and transcription\n\n## Purpose\n\nRead a note aloud, record a voice note, or review a local transcript before\ninserting it. Audio and accepted transcripts remain ordinary vault content.\n\n## Enablement and permissions\n\nDisabled by default. The isolated speech permission opens trusted host controls,\nnot a microphone or file API for plugin code. Only Start recording and Start\ndictation request microphone access. No remote speech service is used.\nThe model and native engine require a separate approved download.\n\n## Usage\n\nOpen Speech from the command palette. Choose an installed local voice and use\nRead note aloud, Pause speech, Resume speech, and Stop speech. Recordings show\ntheir state, elapsed time, and input level. Escape stops capture; Cancel recording\ndiscards it. Choose Finish recording, review the clip, then Save voice note.\nThis saves encrypted-at-rest audio when vault encryption is on and inserts a\nstandard relative Markdown link. Dictation and imported audio\nproduce an editable transcript draft. Insert transcript is always explicit.\n\nInline audio retains its ordinary link and supports playback, seek, volume,\nspeed, and download. Other Markdown applications can open the same audio link.\n\n## Settings\n\nVoice, speech rate, and transcription locale are chosen in the host panel.\nThe approved local model is NVIDIA Nemotron 3.5 ASR Streaming 0.6B, a 742 MB\ndownload plus a small native runtime. Its license and origin are shown before\ndownload. No GPU is required by the CPU runtime. Nothing downloads on enablement.\n\n## Disable behavior\n\nTurning the plugin off closes speech controls, stops capture and playback,\nterminates transcription, clears draft audio/transcripts, and removes plugin\nand native runtime code. Existing audio, notes, and accepted transcripts are\nnever deleted. Audio links remain ordinary links. Downloaded model weights are\nreusable public data; their cleanup is separate from\nvault content and requires an explicit action.\n\n## Troubleshooting\n\nUnavailable local voices, denied microphones, unsupported formats, missing\nmodels, and failed downloads show recoverable errors. Check OS microphone\nprivacy settings before retrying. Do not select a remote voice as a workaround.\nLocked encrypted vaults cannot record, play decrypted attachments, or transcribe.\nNo plaintext audio temporary file is used. Other applications, device drivers,\nOS memory dumps, and previously downloaded/exported audio are outside this\nplugin's cleanup boundary.\n\nInterrupted saves use private host recovery metadata, never vault-supplied\ndeletion instructions. Uncertain recordings are kept. Unfinished audio recovery\noffers Keep unfinished audio to clear only the recovery record while preserving\nevery file for manual review.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.credential-store",
+      "name": "Encrypted credential store",
+      "version": "0.1.0",
+      "description": "An independently password-protected local store with masked secrets and authenticated exports.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "security-privacy",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.11.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "credential-store"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.credential-store-0.1.0.tgz",
+      "sha256": "e6080e13c99aab5f91e264c31d60ab1f9cb48fb6ad9d055707f722e3da744e9c",
+      "sizeBytes": 16559
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "936caf02b854b2924332625dbf2b215cb69eec74",
+      "trusted": true
+    },
+    "guide": "# Encrypted credential store\n\n## Purpose\n\nKeep service names, usernames, passwords/tokens, URLs, and private entry notes\ninside one independently encrypted file, never a Markdown credential table.\n\n## Enablement and permissions\n\nDisabled by default. The isolated credential-store permission opens trusted\nhost controls. Downloaded plugin code never receives entries, passwords, keys,\nclipboard contents, or filesystem access. Enabling does not create a store.\n\n## Usage\n\nOpen Credential store from the command palette. Create a master password of at\nleast 12 characters, independent of whole-vault encryption, or unlock the\nexisting store. Forgotten passwords cannot be recovered.\nCreate, edit, delete, search, and sort entries after unlocking. Secrets are\nmasked until Show and hide automatically. Copy username and Copy secret are\nseparate actions. Clipboard contents may be read or retained by other apps.\n\nBack up the vault's hidden `.denote/credentials.dncred` file. Encrypted backup\nand import retain every field as ciphertext. Replacing a store requires\nauthentication and explicit confirmation. Plaintext export separately requires\nthe current master password and a risk confirmation every time. The export\nremains plaintext outside Denote's cleanup.\n\n## Settings\n\nChoose the bounded inactivity timeout and clipboard-clear timeout in the host\npanel. Lock now ends the session immediately. Application deactivation, vault\nlock/switch, plugin removal, and exit also lock it. No password remembrance or\nkeychain recovery mechanism is silently enabled.\n\n## Disable behavior\n\nDisabling clears the active view and native key, removes plugin code, and\nleaves the encrypted credential file intact. Plugin-generated-data cleanup\ndoes not delete it. Turning whole-vault encryption off never decrypts its\nindependent inner container. Keep the master password and encrypted backup.\n\n## Troubleshooting\n\nAuthentication, damaged data, unknown formats, changed files, clipboard failures,\nand cancelled transfers are explicit errors, never an empty replacement store.\nPreserve a damaged file and restore a verified encrypted backup.\nThe store uses Argon2id and XChaCha20-Poly1305. All entry fields are encrypted;\nthe format, random salt/nonce, fixed filename, and padded file size are visible.\nDenote does not write entry plaintext into indexes, revisions, logs, or temporary\nfiles. An unlocked device, debugger, clipboard history, screen capture, swap,\nor OS crash dump remains outside that guarantee.\n"
   }
 ]

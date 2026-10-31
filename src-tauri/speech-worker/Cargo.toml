@@ -1,0 +1,9 @@
+[package]
+name = "denote-speech-worker"
+version = "0.1.0"
+description = "Denote's isolated local speech inference helper"
+edition = "2024"
+publish = false
+
+[dependencies]
+denote = { path = ".." }

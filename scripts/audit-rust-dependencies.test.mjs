@@ -34,6 +34,13 @@ function metadata(workspace = root) {
         name: "denote",
         manifest_path: join(workspace, "Cargo.toml"),
       },
+      {
+        id: "synthetic-speech-helper",
+        name: "denote-speech-worker",
+        version: "0.1.0",
+        source: null,
+        manifest_path: join(workspace, "speech-worker", "Cargo.toml"),
+      },
       ...Object.entries(versions).map(([name, version]) => ({
         id: `synthetic-${name}`,
         name,
@@ -55,6 +62,29 @@ function lockfile() {
 describe("Rust source-backport audit", () => {
   it("requires the reviewed local packages and application-only default", () => {
     expect(() => verifyResolvedBackports(metadata(), root)).not.toThrow();
+  });
+
+  it.each([
+    ["registry source", (entry) => { entry.source = "registry+https://github.com/rust-lang/crates.io-index"; }],
+    ["Git source", (entry) => { entry.source = "git+https://example.invalid/synthetic"; }],
+    ["unreviewed version", (entry) => { entry.version = "9.9.9"; }],
+    ["unreviewed path", (entry) => { entry.manifest_path = join(root, "unapproved", "Cargo.toml"); }],
+  ])("rejects a speech helper with %s", (_label, change) => {
+    const input = metadata();
+    change(input.packages.find((entry) => entry.name === "denote-speech-worker"));
+    expect(() => verifyResolvedBackports(input, root)).toThrow(/speech helper/i);
+  });
+
+  it("requires one reviewed helper without making it a default workspace member", () => {
+    const missing = metadata();
+    missing.packages = missing.packages.filter((entry) => entry.name !== "denote-speech-worker");
+    expect(() => verifyResolvedBackports(missing, root)).toThrow(/speech helper/i);
+    const duplicate = metadata();
+    duplicate.packages.push({ ...duplicate.packages.find((entry) => entry.name === "denote-speech-worker") });
+    expect(() => verifyResolvedBackports(duplicate, root)).toThrow(/speech helper/i);
+    const defaults = metadata();
+    defaults.workspace_default_members.push("synthetic-speech-helper");
+    expect(() => verifyResolvedBackports(defaults, root)).toThrow(/default/i);
   });
 
   describe("required Rust registry checks", () => {

@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 
 fn main() {
     println!("cargo:rerun-if-changed=../bundled-tools.lock.json");
+    println!("cargo:rerun-if-changed=resources/speech");
     let target = env::var("TARGET").unwrap_or_default();
     let manifest = PathBuf::from("resources")
         .join("tools")

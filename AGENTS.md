@@ -169,9 +169,15 @@ sizes, and URLs before uploading the exact bytes beside installers. Disabling
 a plugin must remove package code, cached archives, staging content, and removal
 backups without deleting vault content.
 
-For macOS development handoff, build the disk image with
-`CI=true npm run tauri build -- --bundles dmg`, then open the generated `.dmg`
-from `src-tauri/target/release/bundle/dmg/`.
+For a local macOS handoff without Developer ID credentials, build with
+`CI=true APPLE_SIGNING_IDENTITY=- npm run tauri build -- --bundles app,dmg`,
+verify the retained app with `codesign --verify --deep --strict`, then open the
+generated `.dmg` from `src-tauri/target/release/bundle/dmg/`. The explicit ad-hoc
+identity must sign the main app as well as the helper; a linker-only signature
+does not apply the microphone entitlement or seal bundle resources. Use the
+configured Developer ID identity instead of `-` for a signed release. Follow
+**Preview an unpublished plugin on macOS** in `docs/development.md` for the
+isolated Development bundle.
 
 Preserve the one-time, non-destructive Denote Welcome vault behavior. Existing
 Welcome vaults must not be overwritten. When adding, removing, or moving a

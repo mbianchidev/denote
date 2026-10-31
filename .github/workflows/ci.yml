@@ -106,6 +106,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Select native speech platform smoke
+        id: speech-scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            echo "Baseline unavailable; running the complete speech platform smoke."
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          else
+            if [[ "$EVENT_NAME" == "pull_request" ]]; then
+              BASE_SHA=$(git merge-base "$BASE_SHA" HEAD)
+            fi
+            if git diff --quiet "$BASE_SHA" HEAD -- \
+              .github/workflows/ci.yml scripts/test-speech-model.ts scripts/prepare-speech-helper.mjs \
+              src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/build.rs src-tauri/src/main.rs src-tauri/src/lib.rs \
+              src-tauri/speech-worker src-tauri/Entitlements.plist src-tauri/SpeechHelper.entitlements.plist \
+              src-tauri/tauri.conf.json src-tauri/tauri.windows.conf.json src-tauri/tauri.linux.conf.json \
+              src-tauri/src/sensitive/speech_engine.rs src-tauri/src/sensitive/speech_helper.rs \
+              src/lib/speech.ts src/lib/speechCaptureProcessor.js; then
+              echo "required=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Native speech inputs changed or selection was incomplete."
+              echo "required=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -234,6 +262,61 @@ jobs:
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Windows private export access control
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $id = [Guid]::NewGuid().ToString('N')
+          $username = "denote-acl-$($id.Substring(0, 8))"
+          $password = "$([Guid]::NewGuid().ToString('N'))aA1!"
+          $fixture = Join-Path $env:PUBLIC "Documents\denote-acl-$id"
+          $accountCreated = $false
+          $fixtureCreated = $false
+          try {
+            $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+            $account = New-LocalUser -Name $username -Password $securePassword -AccountNeverExpires -PasswordNeverExpires
+            $accountCreated = $true
+            $members = Get-LocalGroupMember -SID 'S-1-5-32-545'
+            if ($account.SID -notin $members.SID) {
+              Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $username
+            }
+            New-Item -ItemType Directory -Path $fixture | Out-Null
+            $fixtureCreated = $true
+            $acl = Get-Acl -LiteralPath $fixture
+            $everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+            $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $everyone, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+            $acl.AddAccessRule($rule)
+            Set-Acl -LiteralPath $fixture -AclObject $acl
+            $env:DENOTE_EXPORT_TEST_USER = $username
+            $env:DENOTE_EXPORT_TEST_PASSWORD = $password
+            $env:DENOTE_EXPORT_TEST_DIRECTORY = $fixture
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --lib `
+              windows_private_exports_deny_non_owner_before_and_after_write -- --ignored --nocapture
+            if ($LASTEXITCODE -ne 0) { throw 'Windows private export access-control regression failed.' }
+          } finally {
+            [Environment]::SetEnvironmentVariable('DENOTE_EXPORT_TEST_USER', $null, 'Process')
+            [Environment]::SetEnvironmentVariable('DENOTE_EXPORT_TEST_PASSWORD', $null, 'Process')
+            [Environment]::SetEnvironmentVariable('DENOTE_EXPORT_TEST_DIRECTORY', $null, 'Process')
+            try {
+              if ($fixtureCreated) { Remove-Item -LiteralPath $fixture -Recurse -Force }
+            } finally {
+              if ($accountCreated) { Remove-LocalUser -Name $username }
+            }
+          }
+
+      - name: Install offline synthetic speech generator
+        if: runner.os == 'Linux' && steps.speech-scope.outputs.required == 'true'
+        run: sudo apt-get install --yes espeak-ng
+
+      - name: Real local Nemotron platform smoke
+        if: steps.speech-scope.outputs.required == 'true'
+        shell: bash
+        env:
+          DENOTE_SPEECH_TEST_EXECUTABLE: ${{ runner.os == 'Windows' && format('{0}/src-tauri/resources/speech/denote-speech-worker.exe', github.workspace) || '' }}
+        run: npm run test:speech-model -- --approve-download --engine-dir "${{ runner.temp }}/denote-synthetic-model"
 
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml

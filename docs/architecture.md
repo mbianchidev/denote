@@ -1349,6 +1349,78 @@ opaque owners, preserves a pre-existing fullscreen window, ignores old-owner
 cleanup, cancels pending entry, and keeps failed restoration retryable. Workers
 never receive its callbacks or the native window object.
 
+### Sensitive tools
+
+The additive `speech` and `credential-store` permissions expose only closed
+declarative `sensitiveTools.register` contributions. SDK and native validation
+require an isolated single-permission worker; no workspace, network, process,
+clipboard, keychain, or note-event capability can be combined with either.
+Workers receive no user content. The trusted host owns all UI and native I/O.
+The host derives activity-rail entries from the existing sensitive-tool
+registrations and renders non-modal sidebars; it does not add worker sidebar
+access or change immutable plugin packages. Speech stays owned by the focused
+Markdown editor and is portaled into the shared sidebar. Changing note/pane,
+sidebar, vault, or provider unmounts and releases that editor's capture.
+The device-local dictation binding defaults to Control-Space and is handled
+before editor completion only in an editable Markdown
+note or its Speech sidebar, excluding repeats, composition, extra modifiers,
+presentation, and modal input. One explicit request starts dictation; the next
+stops capture and transcribes locally. Model absence/unsupported platforms stay
+visible and never cause a download or later automatic microphone start.
+The host validates and normalizes shortcut text before persisting it under
+`denote.speech-shortcut.v1`; unmodified keys, malformed chords, and conflicting
+core/editor actions are rejected. The same parsed value drives matching,
+sidebar copy, and command-palette metadata. Configuration descendants are never
+dictation targets, focusing them consumes queued consent, and changes are
+disabled during capture. Storage/validation failures are visible and do not
+silently replace an active binding. No shortcut or key event goes to workers.
+Ready-model requests acquire the microphone in a cancellable next-task action,
+after Development StrictMode finishes replaying effects. A second request,
+configuration focus, read mode, suspension, or teardown consumes/cancels pending
+intent before acquisition; cleanup never automatically restarts a recording.
+The host snapshots an exact current selection at capture/import. Missing,
+ambiguous, or changed snapshots append at the current note's end instead of
+guessing a replacement; the review states that destination. Paragraph separation
+preserves existing bytes and line endings, and final editor/native writes retain
+their ordinary source/hash fences.
+
+`src-tauri/src/sensitive/` fences operations by enabled permission, canonical
+active vault, unlock state, and opaque session/operation identity. Native
+credential keys use zeroizing ownership, monotonic and wall-clock expiry,
+generation invalidation, and owner-specific cleanup. The independently encrypted
+container in `vault/credentials.rs` never uses note/history/index writers.
+Credential table copies resolve only the typed service/username/secret field
+inside native code and return no copied value. HTTP(S) service links reject
+embedded credentials and unsafe addresses. Their external-link approval is
+one-time, is removed on credential lock/unmount, never persists a credential
+domain, and redacts destination/native error details from failure diagnostics.
+Its fixed-format authenticated header, Argon2id parameters, nonce generation,
+closed schema, padding, conflict checks, backup/import, and separately
+authenticated export are described in [the security design](phase-6-security.md).
+
+Speech capture is a same-origin audio worklet started only by an explicit
+microphone action. Private in-memory PCM becomes a canonical 16 kHz mono WAV.
+Native note/audio commits preserve source offsets and line endings, use ordinary
+vault encryption, and recover from host-private SQLite operation records rather
+than trusting vault-supplied deletion instructions. Uncertain recovery preserves
+files and exposes an explicit keep-files/clear-metadata action.
+
+Approved immutable NeMo-Speech.cpp CPU archives and the Nemotron 3.5 GGUF are
+streamed, size/hash verified, and reverified before loading. Native libraries
+run only in a disposable Denote helper process with cleared environment,
+anonymous audio/result pipes, bounded I/O/deadlines, and Unix core dumps disabled.
+The separate `denote-speech-worker` executable has no GUI startup path; the
+desktop executable cannot dispatch inference. macOS embeds an independently
+signed helper under `Contents/Helpers/`. Only that helper has the
+library-validation exception required for NVIDIA's verified native libraries.
+The main app and credential-store process retain library validation, and only
+the main app has the audio-input entitlement. Tauri signs the nested helper
+first; final application notarization covers the containing bundle.
+Cancellation kills and reaps its exact process. Disabled last-provider cleanup
+removes native code; public model weights have separate cleanup. Installed
+third-party code and OS services remain explicit trust dependencies, not a
+claim that process separation defeats a compromised OS.
+
 ### Time tracking
 
 The additive API version 1 `time-tracking` contract lives in
@@ -2224,14 +2296,38 @@ a note or start autosave just because Rich serialization drops whitespace.
 The leading/trailing-whitespace snapshot refreshes after explicit Source edits,
 so a later Rich edit cannot resurrect deliberately deleted spaces or blank lines.
 
-The standard Markdown serialization extension adjusts only the directive-colon
-and character-reference safety rules through MDXEditor's supported export API.
+The standard Markdown serialization extension adjusts directive-colon,
+character-reference, and equals-sign safety rules through MDXEditor's supported export API.
 Directive syntax is not recognized in URI destinations or the `mailto:` scheme.
 An ampersand is escaped only when the following text can form a character
 reference, not for an ordinary `&cc=` query separator. The ordinary
 `mdast-util-to-markdown` root handler still serializes the tree; code, required
 escapes, reference nodes, callouts, and source-only fallbacks retain their
 existing boundaries.
+Equals signs are escaped only for a possible setext underline or adjacent
+highlight delimiters, not for an isolated literal or ordinary comparison.
+Paragraph-ending space/tab references are restored to literal whitespace while
+code, escaped entities, and structural Markdown remain protected.
+
+Rich output is reconciled against the previous serialized/source pair before
+TOC marker restoration. The existing bounded source-history baseline supplies
+that pair; no extra document-history cache or parser pass is added. Only
+non-overlapping whitespace/backslash normalization differences are restored,
+so unrelated line endings, spaces, tabs, hard breaks, and explicit escapes
+survive an edit elsewhere. Structural extensions retain ownership of markers
+and delimiters. Source transactions become the next authoritative baseline,
+and deleted content is not reconstructed. The direct `diff` dependency is the
+same reviewed version already used by the diff viewer.
+Original emphasis, strong, and unordered-list markers are also captured through
+public import visitors into Lexical node state. Export visitors delegate the
+ordinary format/list conversion, then carry each marker into typed MDAST data.
+Adjacent emphasis runs with different source markers remain separate, and new
+list items inherit the nearest original sibling's marker. Marker-aware attention
+handlers retain the serializer's `attention`/`peek` contract and its delimiter
+collision handling. The root wraps the installed list-item handler rather than
+replacing GFM task serialization, so checkboxes and nested lists remain intact.
+This adds no document parser pass, worker permission, or source metadata file;
+Source imports and ordinary Lexical undo/redo retain ownership of explicit edits.
 
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.

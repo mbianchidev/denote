@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Denote",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "identifier": "dev.mbianchi.denote",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run prepare:speech-helper -- --debug && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build && npm run prepare:speech-helper",
     "frontendDist": "../dist"
   },
   "app": {
@@ -21,10 +21,17 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' data: blob: 'wasm-unsafe-eval' 'sha256-YL/+v3Ibpu5bxy8Rdum29twfQ7wFcwuXVAxoIpFJQ6A='; worker-src 'self'; frame-src data:; img-src 'self' asset: http: https: data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; script-src 'self' data: blob: 'wasm-unsafe-eval' 'sha256-YL/+v3Ibpu5bxy8Rdum29twfQ7wFcwuXVAxoIpFJQ6A='; worker-src 'self'; frame-src data:; img-src 'self' asset: http: https: data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
     }
   },
   "bundle": {
+    "macOS": {
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist",
+      "files": {
+        "Helpers/Denote Speech Helper.app": "resources/speech/Denote Speech Helper.app"
+      }
+    },
     "active": true,
     "targets": "all",
     "icon": [

@@ -16,10 +16,12 @@ import {
   Info,
   ListChecks,
   MessageSquare,
+  Mic,
   Moon,
   Network,
   Plug,
   Search,
+  KeyRound,
   Sun,
   Trash2,
   Timer,
@@ -35,6 +37,7 @@ import type {
   PluginSourceControlContribution,
   PluginTaskListContribution,
   PluginTimeTrackingContribution,
+  PluginSensitiveToolContribution,
 } from "../plugins/workerRuntime";
 
 interface ActivityRailProps {
@@ -61,6 +64,7 @@ interface ActivityRailProps {
   } | null;
   activeTimeTracking?: { pluginId: string; providerId: string } | null;
   pluginViews: Array<{ id: string; title: string }>;
+  sensitiveTools?: PluginSensitiveToolContribution[];
   sourceControlProviders: PluginSourceControlContribution[];
   noteGraphs: PluginNoteGraphContribution[];
   taskLists: PluginTaskListContribution[];
@@ -109,6 +113,7 @@ interface PluginRailItem {
     | "reminders"
     | "time-tracking"
     | "note-comments";
+  feature?: "speech" | "credential-store";
   ariaLabel?: string;
   badgeCount?: number;
   disabled?: boolean;
@@ -142,6 +147,7 @@ function ActivityRailComponent({
   activeReminder = null,
   activeTimeTracking = null,
   pluginViews,
+  sensitiveTools = [],
   sourceControlProviders,
   noteGraphs,
   taskLists,
@@ -247,6 +253,14 @@ function ActivityRailComponent({
     });
     const available = [
       ...sidebarItems,
+      ...sensitiveTools.map((tool) => ({
+        key: `sensitive:${tool.pluginId}:${tool.id}`,
+        title: tool.title,
+        selected: activePluginView === tool.id,
+        kind: "view" as const,
+        feature: tool.feature,
+        onSelect: () => onPluginViewChange(tool.id),
+      })),
       ...sourceItems,
       ...graphItems,
       ...taskItems,
@@ -308,6 +322,7 @@ function ActivityRailComponent({
     onPluginViewChange,
     onSourceControlProviderChange,
     pluginViews,
+    sensitiveTools,
     preferences.order,
     sourceControlProviders,
   ]);
@@ -428,7 +443,11 @@ function ActivityRailComponent({
                         setDragged(null);
                       }}
                     >
-                      {item.kind === "source-control" ? (
+                      {item.feature === "speech" ? (
+                        <Mic aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.feature === "credential-store" ? (
+                        <KeyRound aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.kind === "source-control" ? (
                         <GitBranch aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : item.kind === "note-graph" ? (
                         <Network aria-hidden="true" size={19} strokeWidth={1.8} />

@@ -45,6 +45,7 @@ import type { PluginCodeContribution } from "./codeIntelligence";
 import {
   PluginWorkerRuntime,
   type PluginAuthoringContribution,
+  type PluginSensitiveToolContribution,
   type PluginCalendarContribution,
   type PluginActionLeaseScope,
   type PluginActionHostSecrets,
@@ -75,6 +76,7 @@ const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
 const EMPTY_CALENDARS: PluginCalendarContribution[] = [];
 const EMPTY_TASK_LISTS: PluginTaskListContribution[] = [];
 const EMPTY_AUTHORING: PluginAuthoringContribution[] = [];
+const EMPTY_SENSITIVE_TOOLS: PluginSensitiveToolContribution[] = [];
 const EMPTY_TIME_TRACKERS: PluginTimeTrackingContribution[] = [];
 
 /**
@@ -122,6 +124,8 @@ function permissionRequestEqual(
     case "text-styling":
     case "note-comments":
     case "presentation":
+    case "speech":
+    case "credential-store":
     case "note-graph":
     case "calendar":
     case "reminders":
@@ -176,6 +180,7 @@ function permissionsUnchanged(
 }
 
 export interface PluginController {
+  sensitiveTools: PluginSensitiveToolContribution[];
   authoringProviders: PluginAuthoringContribution[];
   requestAuthoring: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
   codeProviders: PluginCodeContribution[];
@@ -337,6 +342,10 @@ export function usePlugins(
   confirmTimeTrackingStop: (names: string[]) => Promise<boolean> = async () => false,
 ): PluginController {
   const [codeProviders, setCodeProviders] = useState<PluginCodeContribution[]>([]);
+  const [sensitiveToolState, setSensitiveToolState] = useState<{
+    workspaceIdentity: string | null;
+    contributions: PluginSensitiveToolContribution[];
+  }>({ workspaceIdentity, contributions: [] });
   const [authoringState, setAuthoringState] = useState<{
     workspaceIdentity: string | null;
     contributions: PluginAuthoringContribution[];
@@ -489,6 +498,10 @@ export function usePlugins(
         workspaceIdentity: workspaceIdentityRef.current,
         contributions,
       }),
+      (contributions) => setSensitiveToolState({
+        workspaceIdentity: workspaceIdentityRef.current,
+        contributions,
+      }),
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -586,7 +599,7 @@ export function usePlugins(
         try {
           const retainsWorkspaceContent = plugin.approvedPermissions.some(
             (permission) =>
-              ["note-graph", "calendar", "task-list", "time-tracking", "text-styling", "note-comments", "presentation"].includes(
+              ["note-graph", "calendar", "task-list", "time-tracking", "text-styling", "note-comments", "presentation", "speech", "credential-store"].includes(
                 permission.capability,
               ),
           );
@@ -1434,6 +1447,8 @@ export function usePlugins(
   }, []);
 
   return {
+    sensitiveTools: contentAvailable && sensitiveToolState.workspaceIdentity === workspaceIdentity
+      ? sensitiveToolState.contributions : EMPTY_SENSITIVE_TOOLS,
     authoringProviders,
     requestAuthoring,
     codeProviders: contentAvailable ? codeProviders : [],
@@ -1501,7 +1516,7 @@ function requiresContent(plugin: PluginView): boolean {
   const hasClocks = plugin.approvedPermissions.some((permission) => permission.capability === "clocks");
   return plugin.approvedPermissions.some((permission) =>
     (permission.capability === "time-tracking" && !hasClocks) ||
-    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence", "text-styling", "note-comments", "presentation"].includes(
+    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence", "text-styling", "note-comments", "presentation", "speech", "credential-store"].includes(
       permission.capability,
     ),
   );

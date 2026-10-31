@@ -51,6 +51,8 @@ const PERMISSION_LABELS: Record<string, string> = {
   "text-styling": "Read bounded Markdown for accessible text styles and highlight search; format only explicitly selected text",
   "note-comments": "Anchor local comments to bounded note text; the host owns encrypted vault sidecars",
   presentation: "Parse bounded Markdown decks and reorder slides only after an explicit action",
+  speech: "Open local speech controls; microphone, model downloads, attachments, and transcript insertion require separate explicit actions",
+  "credential-store": "Open the independently encrypted credential store; plugin code never receives passwords, entries, or keys",
   "note-graph": "Index and visualize bounded local note connections",
   calendar: "Read filesystem dates and bounded frontmatter; create daily Markdown after an explicit action, without overwriting existing notes",
   reminders: "Store local reminder metadata and schedule host-owned reminder delivery",

@@ -315,8 +315,23 @@ impl PluginManager {
         clear_data: bool,
         clear_credentials: bool,
     ) -> AppResult<()> {
+        crate::sensitive::revoke_plugin(plugin_id)?;
         let _operation = self.begin_operation(plugin_id)?;
-        self.catalog_entry(plugin_id)?;
+        let catalog = self.catalog_entry(plugin_id)?;
+        let speech = catalog
+            .manifest
+            .permissions
+            .iter()
+            .any(|permission| permission.capability == "speech")
+            || self
+                .state()?
+                .approved_permissions
+                .get(plugin_id)
+                .is_some_and(|permissions| {
+                    permissions
+                        .iter()
+                        .any(|permission| permission.capability == "speech")
+                });
         self.cancel_git_operations(plugin_id);
         self.inner.code_sessions.stop_plugin(Some(plugin_id))?;
         self.remove_package(plugin_id)?;
@@ -340,7 +355,29 @@ impl PluginManager {
                     .retain(|key, _| !key.starts_with(&format!("{plugin_id}:")));
             }
             Ok(())
-        })
+        })?;
+        if speech {
+            let enabled = {
+                let state = self.state()?;
+                state.enabled.iter().any(|id| {
+                    state
+                        .approved_permissions
+                        .get(id)
+                        .is_some_and(|permissions| {
+                            permissions
+                                .iter()
+                                .any(|permission| permission.capability == "speech")
+                        })
+                })
+            };
+            if !enabled {
+                crate::sensitive::speech_engine::cleanup_disabled(
+                    &self.inner.app_data_dir,
+                    clear_data,
+                )?;
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn read_entrypoint(&self, plugin_id: &str) -> AppResult<String> {

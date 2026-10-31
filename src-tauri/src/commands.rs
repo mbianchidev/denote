@@ -120,6 +120,16 @@ pub(crate) fn populate_encryption_status(
 ) -> AppResult<()> {
     snapshot.encryption =
         vault::encryption_status(&snapshot.vault_path, state.vault_is_unlocked()?)?;
+    if !snapshot.encryption.enabled || snapshot.encryption.unlocked {
+        let key = active_key(state, Path::new(&snapshot.vault_path))?;
+        if vault::speech::recover(&state.db_path, &snapshot.vault_path, key.as_deref(), None)
+            .is_err()
+        {
+            eprintln!(
+                "Voice-note recovery needs attention. Open Speech to review unfinished audio; ordinary notes remain available."
+            );
+        }
+    }
     if snapshot.encryption.enabled {
         let key = if snapshot.encryption.unlocked {
             active_key(state, Path::new(&snapshot.vault_path))?
@@ -1248,7 +1258,7 @@ where
         .map_err(|error| AppError::State(format!("Background task failed: {error}")))?
 }
 
-async fn run_vault_read<R, T, F>(app: AppHandle<R>, operation: F) -> AppResult<T>
+pub(crate) async fn run_vault_read<R, T, F>(app: AppHandle<R>, operation: F) -> AppResult<T>
 where
     R: Runtime,
     T: Send + 'static,

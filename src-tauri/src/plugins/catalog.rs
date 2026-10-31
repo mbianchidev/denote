@@ -184,6 +184,17 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             "Plugin {id} combines clocks with content-based capabilities"
         )));
     }
+    if entry.manifest.permissions.iter().any(|permission| {
+        matches!(
+            permission.capability.as_str(),
+            "speech" | "credential-store"
+        )
+    }) && entry.manifest.permissions.len() != 1
+    {
+        return Err(AppError::Plugin(
+            "Sensitive tools require one isolated speech or credential-store permission".into(),
+        ));
+    }
     validate_relative_path(&entry.manifest.documentation)?;
     validate_relative_path(&entry.manifest.icon)?;
     for legal in &entry.manifest.legal {
@@ -202,6 +213,8 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "text-styling"
             | "note-comments"
             | "presentation"
+            | "speech"
+            | "credential-store"
             | "note-graph"
             | "calendar"
             | "reminders"

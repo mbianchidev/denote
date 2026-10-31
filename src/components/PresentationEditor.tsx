@@ -33,6 +33,9 @@ export function PresentationEditor(props: PresentationEditorProps) {
   const model = parsed?.source === source ? parsed.model : null;
   const [error, setError] = useState("");
   const [overview, setOverview] = useState(false);
+  const overviewList = useRef<HTMLOListElement>(null);
+  const reorderFocus = useRef<{ index: number; direction: "earlier" | "later" } | null>(null);
+  const [reorderStatus, setReorderStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [seconds, setSeconds] = useState(10);
   const [intervalInput, setIntervalInput] = useState("10");
@@ -274,6 +277,7 @@ export function PresentationEditor(props: PresentationEditorProps) {
     pause();
     setBusy(true);
     setError("");
+    reorderFocus.current = { index: from, direction: to < from ? "earlier" : "later" };
     const order = model.slides.map((_, index) => index);
     const [moved] = order.splice(from, 1);
     order.splice(to, 0, moved);
@@ -285,11 +289,21 @@ export function PresentationEditor(props: PresentationEditorProps) {
         throw new Error("The deck changed while reordering. No slides were moved.");
       }
       pendingSlide.current = to;
+      reorderFocus.current.index = to;
+      setReorderStatus(`Moved slide to position ${to + 1}.`);
       onChange(next);
       navigate(to, false);
     } catch (caught) { if (alive.current) setError(errorMessage(caught)); }
     finally { if (alive.current) setBusy(false); }
   };
+  useLayoutEffect(() => {
+    if (!reorderFocus.current || busy || !model) return;
+    const { index, direction } = reorderFocus.current;
+    reorderFocus.current = null;
+    const row = overviewList.current?.querySelector<HTMLElement>(`[data-slide-index="${index}"]`);
+    const move = row?.querySelector<HTMLButtonElement>(`[data-reorder="${direction}"]`);
+    (move && !move.disabled ? move : row?.querySelector<HTMLButtonElement>("[data-slide-select]"))?.focus();
+  }, [model, busy]);
   const slide = model?.slides[Math.min(state.index, model.slides.length - 1)];
   const preview = slide ? source.slice(slide.from, slide.to) : "";
   return <div className="presentation-editor">
@@ -302,14 +316,18 @@ export function PresentationEditor(props: PresentationEditorProps) {
     {model?.notices.length ? <div className="presentation-notices" role="status">
       {model.notices.map((notice, index) => <p key={index}>{notice}</p>)}
     </div> : null}
-    {overview && model ? <ol className="presentation-overview" aria-label="Slide overview">
-      {model.slides.map((slide, index) => <li key={index}>
+    {reorderStatus ? <p role="status" className="authoring-muted">{reorderStatus}</p> : null}
+    {overview && model ? <ol ref={overviewList} className="presentation-overview" aria-label="Slide overview">
+      {model.slides.map((slide, index) => <li key={index} data-slide-index={index}>
         <button type="button" className="secondary-button" aria-pressed={state.index === index}
+          data-slide-select
           onClick={() => navigate(index)}>Slide {index + 1}: {slide.title}</button>
         <div className="authoring-actions">
           <button type="button" className="secondary-button" aria-label={`Move slide ${index + 1} earlier`}
+            data-reorder="earlier"
             disabled={readOnly || busy || index === 0} onClick={() => void reorder(index, index - 1)}>Earlier</button>
           <button type="button" className="secondary-button" aria-label={`Move slide ${index + 1} later`}
+            data-reorder="later"
             disabled={readOnly || busy || index === model.slides.length - 1} onClick={() => void reorder(index, index + 1)}>Later</button>
         </div>
       </li>)}

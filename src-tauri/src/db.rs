@@ -104,6 +104,7 @@ impl AppState {
             .write()
             .map_err(|_| crate::error::AppError::State("Vault key lock is poisoned".to_string()))?
             .take();
+        crate::sensitive::revoke_all()?;
         Ok(())
     }
 
@@ -155,6 +156,11 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
         CREATE TABLE IF NOT EXISTS schema_migrations (
           version INTEGER PRIMARY KEY,
           applied_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS pending_speech_attachments (
+          vault_path TEXT PRIMARY KEY,
+          document TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS vaults (
@@ -546,6 +552,40 @@ fn column_exists(connection: &Connection, table: &str, column: &str) -> AppResul
         }
     }
     Ok(false)
+}
+
+pub(crate) fn load_pending_speech_attachments(
+    db_path: &Path,
+    vault: &str,
+) -> AppResult<Option<String>> {
+    Ok(open(db_path)?
+        .query_row(
+            "SELECT document FROM pending_speech_attachments WHERE vault_path = ?1",
+            [vault],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+pub(crate) fn store_pending_speech_attachments(
+    db_path: &Path,
+    vault: &str,
+    document: Option<&str>,
+) -> AppResult<()> {
+    let connection = open(db_path)?;
+    if let Some(document) = document {
+        connection.execute(
+            "INSERT INTO pending_speech_attachments (vault_path, document) VALUES (?1, ?2)
+            ON CONFLICT(vault_path) DO UPDATE SET document = excluded.document",
+            params![vault, document],
+        )?;
+    } else {
+        connection.execute(
+            "DELETE FROM pending_speech_attachments WHERE vault_path = ?1",
+            [vault],
+        )?;
+    }
+    Ok(())
 }
 
 pub fn open(db_path: &Path) -> AppResult<Connection> {

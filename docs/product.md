@@ -147,6 +147,13 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Rich serialization does not add directive escapes to `mailto:` destinations
   or unnecessary escapes to ordinary URI query separators; required Markdown
   escapes and literal backslashes in code remain intact.
+  Rich edits also retain untouched per-line spaces, tabs, hard-break spelling,
+  and line endings. A literal `=` stays unescaped unless it would form a real
+  heading underline or highlight delimiter; typed trailing spaces after
+  punctuation remain literal spaces, not character references.
+  Existing italic and bold delimiter choices (`_` / `*`, `__` / `**`) and
+  unordered-list markers (`-`, `+`, `*`) remain intact. Newly continued list
+  items inherit the surrounding marker rather than normalizing the list.
 - Full, collapsed, and shortcut Markdown reference links render and remain
   editable in Rich mode. Definitions stay invisible and retain their exact
   source formatting and ordering.
@@ -502,6 +509,30 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   malformed metadata without rewriting it. Rendering reuses safe note behavior.
   Absolute monotonic deadlines avoid timer drift; hidden/blurred/inactive,
   edited, closed, or withdrawn decks pause and release their resources.
+- Optional **Speech, voice notes, and transcription** uses installed local
+  voices, explicit microphone actions, visible recording state, accessible
+  playback, ordinary WAV/Markdown attachments, and review-before-insertion
+  transcripts. Separately approved pinned NVIDIA Nemotron 3.5 model/runtime
+  downloads enable local CPU inference. Audio stays in memory or authorized
+  vault files, never a transcription staging file or remote service.
+  Its activity-rail sidebar works beside Rich and Source. The configurable,
+  device-local shortcut defaults to Control-Space and starts
+  and finishes local dictation; an exact current selection is preserved and a
+  missing/stale position safely appends reviewed text instead.
+- The optional **Encrypted credential store** encrypts every entry field in
+  `.denote/credentials.dncred` behind an independent master password, including
+  in an unencrypted vault. Argon2id and authenticated XChaCha20-Poly1305 protect
+  it; unlock failure never resets data. Mask/reveal, native field copies,
+  inactivity/focus/scope locks, encrypted backup/import, and separately
+  reauthenticated/confirmed plaintext export remain host-owned.
+  Its sidebar table provides service/username/secret copy, add/edit/delete,
+  and one-time reviewed HTTP(S) service links without persisting their addresses.
+  Accessible eye buttons reveal/hide secrets without cramped text controls.
+- Sensitive workers register declarative tools only and never receive text,
+  audio, entries, passwords, keys, or clipboard contents. Removing code preserves
+  notes, decks, audio, accepted transcripts, comments, and encrypted credentials.
+  OS memory dumps, clipboard history, screen capture, and compromised devices
+  remain explicit limits, not claims of leak-proof protection.
 - The independently installable **Time tracking** plugin is disabled by default
   and provides **Timer**, **Countdowns**, **Alarm**, and **Notes** modes. Clocks
   work without an open note: one standalone elapsed timer, up to 32 independent

@@ -1,7 +1,7 @@
 {
   "name": "denote",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.12.0",
   "type": "module",
   "workspaces": [
     "packages/plugin-sdk",
@@ -22,6 +22,8 @@
     "prepare:bundled-tools": "node scripts/bundled-tools.mjs",
     "verify:bundled-tools": "node scripts/verify-bundled-tools.mjs",
     "test:bundled-tools": "node --test scripts/bundled-tools.node.mjs",
+    "test:speech-model": "tsx scripts/test-speech-model.ts",
+    "prepare:speech-helper": "node scripts/prepare-speech-helper.mjs",
     "benchmark:editor": "tsc --noEmit -p tsconfig.benchmarks.json && npm run build && playwright test",
     "create:plugin": "tsx scripts/create-plugin.ts",
     "package:plugin": "tsx scripts/package-plugin.ts",
@@ -57,6 +59,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "codemirror-lang-elixir": "^4.0.1",
     "codemirror-lang-hcl": "^0.2.0",
+    "diff": "9.0.0",
     "dompurify": "3.4.17",
     "lucide-react": "^1.57.0",
     "mdast-util-from-markdown": "^2.1.0",

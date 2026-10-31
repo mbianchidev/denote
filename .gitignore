@@ -24,6 +24,8 @@ src-tauri/resources/tools/
 !src-tauri/resources/tools/
 src-tauri/resources/tools/*
 !src-tauri/resources/tools/.gitkeep
+src-tauri/resources/speech/*
+!src-tauri/resources/speech/.gitkeep
 
 # Editor directories and files
 .vscode/*

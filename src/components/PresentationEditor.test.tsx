@@ -1,9 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginAuthoringRequest, PluginAuthoringResult, PluginPresentationModel } from "@denote/plugin-sdk";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { PresentationEditor } from "./PresentationEditor";
+import { presentationRequest } from "../../plugins/presentations/src/deck";
 
 vi.mock("./PlainTextEditor", () => ({
   PlainTextEditor: ({ value, onChange, onCursorChange }: {
@@ -53,6 +55,46 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); });
 
 describe("presentation authoring and lifecycle", () => {
+  it("keeps keyboard focus on the moved slide when a reorder control becomes disabled", async () => {
+    const user = userEvent.setup();
+    const changed = vi.fn();
+    const preamble = "---\ncustom: preserve this exact field\n---\n";
+    function Deck() {
+      const [value, setValue] = useState(preamble + source);
+      return <PresentationEditor {...base} source={value}
+        request={async (request) => presentationRequest(request)}
+        onChange={(source) => { changed(source); setValue(source); }} />;
+    }
+    render(<Deck />);
+    await screen.findByText("Slide 1 of 2");
+    await user.click(screen.getByRole("button", { name: "Overview" }));
+    screen.getByRole("button", { name: "Move slide 1 later" }).focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Slide 2: First" })).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Move slide 2 later" })).toBeDisabled();
+    expect(changed).toHaveBeenLastCalledWith(preamble + "\n# Second\n===\n# First\n\n");
+    expect(screen.getByText("Moved slide to position 2.")).toHaveAttribute("role", "status");
+  });
+
+  it("keeps malformed metadata visible and untouched, then recovers after an explicit Source correction", async () => {
+    const original = "---\npresentation: [broken\n---\n# Synthetic slide\n";
+    const corrected = "---\npresentation:\n  theme: light\ncustom: keep this\n---\n# Synthetic slide\n";
+    const changed = vi.fn();
+    function Deck() {
+      const [value, setValue] = useState(original);
+      return <PresentationEditor {...base} source={value} request={async (request) => presentationRequest(request)}
+        onChange={(source) => { changed(source); setValue(source); }} />;
+    }
+    render(<Deck />);
+    expect(await screen.findByText(/Invalid frontmatter:/)).toBeVisible();
+    expect(screen.getByLabelText("Presentation source")).toHaveValue(original);
+    expect(changed).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Presentation source"), { target: { value: corrected } });
+    await waitFor(() => expect(screen.queryByText(/Invalid frontmatter:/)).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Presentation source")).toHaveValue(corrected);
+    expect(changed).toHaveBeenCalledTimes(1);
+  });
+
   it("uses a modal native fallback when WebKit element fullscreen is disabled, then restores its lease", async () => {
     Object.defineProperty(document, "fullscreenEnabled", { configurable: true, get: () => false });
     const user = userEvent.setup();

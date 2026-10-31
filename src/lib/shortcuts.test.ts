@@ -3,6 +3,8 @@ import {
   editorZoomShortcut,
   isClosePaneShortcut,
   isCommandPaletteShortcut,
+  isDictationShortcut,
+  isDictationTarget,
   isNewFileShortcut,
   isNewTabShortcut,
   isReplaceShortcut,
@@ -11,6 +13,39 @@ import {
   isSplitPaneShortcut,
   paneFocusShortcut,
 } from "./shortcuts";
+
+describe("dictation shortcut", () => {
+  const controlSpace = { ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, code: "Space", key: " " };
+  it("uses physical Control-Space, including on macOS", () => {
+    expect(isDictationShortcut(controlSpace)).toBe(true);
+    expect(isDictationShortcut({ ...controlSpace, code: "Unidentified" })).toBe(true);
+  });
+  it("does not capture Command-Space, extra modifiers, or other keys", () => {
+    for (const event of [
+      { ...controlSpace, ctrlKey: false, metaKey: true },
+      { ...controlSpace, altKey: true }, { ...controlSpace, shiftKey: true },
+      { ...controlSpace, key: "x", code: "KeyX" },
+    ]) expect(isDictationShortcut(event)).toBe(false);
+  });
+  it("accepts note/editor/tab and Speech controls, but never auxiliary note search or form input", () => {
+    const pane = document.createElement("section");
+    pane.dataset.paneId = "synthetic-pane";
+    pane.innerHTML = `<div contenteditable="true"></div><button role="tab"></button>
+      <input aria-label="Synthetic auxiliary input"><textarea></textarea><select></select>
+      <div class="cm-panels"><div class="cm-search"><input name="search"><button>Find next</button></div></div>
+      <div role="dialog"><button>Confirm</button></div>`;
+    expect(isDictationTarget(pane.querySelector('[contenteditable="true"]'))).toBe(true);
+    expect(isDictationTarget(pane.querySelector('[role="tab"]'))).toBe(true);
+    for (const target of pane.querySelectorAll("input, textarea, select, .cm-search button, [role='dialog'] button")) {
+      expect(isDictationTarget(target)).toBe(false);
+    }
+    const speech = document.createElement("section");
+    speech.dataset.sensitiveTool = "speech";
+    speech.innerHTML = "<button>Finish recording</button>";
+    expect(isDictationTarget(speech.querySelector("button"))).toBe(true);
+    expect(isDictationTarget(document.createElement("input"))).toBe(false);
+  });
+});
 
 describe("replace shortcut", () => {
   it("uses Command-H on macOS", () => {

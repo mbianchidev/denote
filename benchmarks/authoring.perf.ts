@@ -1,11 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { build } from "vite";
 import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
+import { painted } from "./browser";
 
 let fixture = "";
 let errors: string[] = [];
 test.beforeAll(async () => {
-  for (const id of ["denote.text-styling", "denote.note-comments", "denote.presentations"]) {
+  for (const id of ["denote.text-styling", "denote.note-comments", "denote.presentations", "denote.speech", "denote.credential-store"]) {
     await buildPlugin(pluginDirectories(id)[0]);
   }
   const result = await build({
@@ -31,18 +32,62 @@ test.afterEach(async ({ page }) => {
 });
 
 async function selectRichText(page: Page, phrase: string) {
-  await page.getByRole("textbox", { name: "editable markdown", exact: true }).focus();
-  await page.getByText("A short phrase for review.", { exact: true }).evaluate((element, phrase) => {
-    const node = element.firstChild;
-    if (!node?.textContent) throw new Error("Missing synthetic text node");
-    const from = node.textContent.indexOf(phrase);
-    if (from < 0) throw new Error("Missing synthetic selection");
-    const range = document.createRange();
-    range.setStart(node, from); range.setEnd(node, from + phrase.length);
-    const selection = window.getSelection();
-    selection?.removeAllRanges(); selection?.addRange(range);
-    document.dispatchEvent(new Event("selectionchange"));
-  }, phrase);
+  const paragraph = page.getByText("A short phrase for review.", { exact: true });
+  const from = (await paragraph.textContent())?.indexOf(phrase) ?? -1;
+  if (from < 0) throw new Error("Missing synthetic selection");
+  await expect(async () => {
+    await paragraph.click();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowLeft" : "Home");
+    for (let index = 0; index < from; index++) await page.keyboard.press("ArrowRight");
+    for (let index = 0; index < phrase.length; index++) await page.keyboard.press("Shift+ArrowRight");
+    await painted(page);
+    expect(await page.evaluate(() => window.getSelection()?.toString())).toBe(phrase);
+  }).toPass({ timeout: 5000 });
+}
+
+test("Rich edits and autosave preserve literal equals signs, trailing spaces, tabs, and hard breaks", async ({ page }) => {
+  const source = "= literal. \t\n\nKept. \n\nHard break.  \nNext line.\t\n\nEdit here";
+  await page.evaluate((source) => { window.__DENOTE_AUTHORING__.documents["Authoring.md"] = source; }, source);
+  await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+  const rich = page.getByRole("textbox", { name: "editable markdown", exact: true });
+  await expect(rich).toBeVisible();
+  await rich.getByText("Edit here", { exact: true }).click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+  await page.keyboard.type("!");
+  await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
+  await page.getByRole("radio", { name: "Source mode", exact: true }).click();
+  await expect.poll(() => page.locator(".markdown-editor-shell .cm-content:visible .cm-line").allTextContents()).toEqual(`${source}!`.split("\n"));
+  await page.getByRole("radio", { name: "Rich text", exact: true }).click();
+  await rich.getByText("Edit here!", { exact: true }).click();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+  await page.keyboard.type(". ");
+  await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!. `);
+  await page.getByRole("radio", { name: "Source mode", exact: true }).click();
+  await expect.poll(() => page.locator(".markdown-editor-shell .cm-content:visible .cm-line").allTextContents()).toEqual(`${source}!. `.split("\n"));
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+for (const marker of ["-", "+", "*"]) {
+  test(`Rich editing retains underscore emphasis and ${marker} list markers, including new items`, async ({ page }) => {
+    const source = `_An invented italic sentence._\n\n${marker} First synthetic item\n${marker} Second synthetic item`;
+    await page.evaluate((source) => { window.__DENOTE_AUTHORING__.documents["Authoring.md"] = source; }, source);
+    await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+    const italic = page.getByRole("textbox", { name: "editable markdown", exact: true }).locator("em").first();
+    await expect(italic).toHaveText("An invented italic sentence.");
+    await page.getByText("Second synthetic item", { exact: true }).click();
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+    await page.keyboard.type("!");
+    await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
+    await page.keyboard.press("Enter");
+    await page.keyboard.type("Third synthetic item");
+    const expected = `${source}!\n${marker} Third synthetic item`;
+    await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(expected);
+    await page.getByRole("radio", { name: "Source mode", exact: true }).click();
+    await expect.poll(() => page.locator(".markdown-editor-shell .cm-content:visible .cm-line").allTextContents()).toEqual(expected.split("\n"));
+    await page.getByRole("radio", { name: "Rich text", exact: true }).click();
+    await expect(italic).toHaveText("An invented italic sentence.");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
 }
 
 test("real approved workers format exact source and keep comments portable through orphan recovery", async ({ page }) => {
@@ -96,6 +141,8 @@ test("presentation source, full-screen navigation, autoplay and return release r
   await expect(page.locator(".presentation-slide")).toContainText("First slide");
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+  await expect(page.getByRole("button", { name: "Exit presentation", exact: true })).toBeEnabled();
+  await expect(page.getByRole("region", { name: "Presentation", exact: true })).toBeFocused();
   await page.keyboard.press("End");
   await expect(page.getByText("Slide 2 of 2", { exact: true })).toBeVisible();
   await expect(page.locator(".presentation-slide")).toContainText("const example = 1;");
@@ -117,6 +164,7 @@ test("the grey sidebar badge follows only the active note's open comments", asyn
   const comments = rail.getByRole("button", { name: /^Note comments(?:,|$)/ });
   const badge = rail.locator(".activity-rail__badge--muted");
   await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+  await expect(rail.getByRole("button", { name: "Speech", exact: true })).toBeVisible();
   await expect(page.locator(".denote-text-style")).toBeVisible();
   await expect(comments).toBeEnabled();
   await expect(badge).toHaveCount(0);
