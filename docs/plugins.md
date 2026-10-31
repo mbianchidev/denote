@@ -835,15 +835,21 @@ sandbox. Invalid protocol or unsafe output removes the plugin; a source parse
 error remains local to its block.
 
 `denote.mermaid` requests only this permission and registers only `mermaid`.
-Its archive owns Mermaid and its renderer dependencies; Mermaid implementation
-does not enter the desktop bundle. The generic host SVG sanitizer separately
-pins DOMPurify. Source preflight and fixed strict configuration reject configuration
+Version 0.3.0 pins Pele 1.12.0, whose synchronous renderer has no runtime
+dependencies. Pele implementation does not enter the desktop bundle. The generic
+host SVG sanitizer separately pins DOMPurify. Source preflight and fixed options
+reject configuration
 directives, HTML labels, links/callbacks, custom styles, images/icons, resources,
 and unsafe protocols. Simple YAML frontmatter permits only a bounded title and
 Gantt `displayMode: compact`; nested configuration, tags, anchors, aliases, and
-unknown keys are rejected. Mermaid 12.0.0 keeps the existing detector-family
-allowlist; new upstream families and internal info/error diagrams are not
-enabled. Supported diagrams stay within fixed source, line,
+unknown keys are rejected. Pele's links and images are explicitly disabled;
+custom icon and math resolvers are not supplied. Math remains literal TeX, as
+in the previous strict renderer. The existing detector-family allowlist stays
+fixed; new upstream families and internal info/error diagrams are not enabled.
+Pele targets Mermaid 12.1 syntax and uses different layouts, while preserving
+explicit source directions. Theme variables, gradient stops, and local paint
+references are resolved to standalone SVG attributes before host sanitization.
+Supported diagrams stay within fixed source, line,
 statement, edge, time, queue, element, SVG, and cache limits.
 
 The host keeps exact fenced source in the ordinary Markdown node. Theme changes

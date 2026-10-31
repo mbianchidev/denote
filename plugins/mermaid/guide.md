@@ -15,13 +15,19 @@ the returned SVG before display, copy, or export.
 
 ## Usage
 
-Create a fenced block whose language is `mermaid`. The plugin accepts Mermaid
-12.0.0's C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY
+Create a fenced block whose language is `mermaid`. Pele 1.12.0 renders the
+existing C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY
 chart, requirement, sequence, class, state, journey, timeline, mindmap, Kanban,
 Sankey, packet, radar, block, tree-view, architecture, event-modeling,
 Ishikawa, Venn, treemap, Wardley, Cynefin, and railroad detector families.
 Use **Show diagram source** to edit the exact fence, **Copy SVG** to copy
 sanitized SVG text, or **Export SVG** to choose a local file.
+
+Pele uses its own layout rather than Mermaid.js. Node positions, spacing, and
+edge paths can differ; explicit diagram directions are preserved. Pele targets
+Mermaid 12.1 syntax, not every Mermaid.js 12.2 feature. Math expressions remain
+literal TeX, as in Denote's previous strict renderer; no separate math
+typesetter is included.
 
 An optional first line such as `%% denote:title: Build flow` supplies the
 bounded accessible figure name. Without it, Denote uses **Mermaid diagram**.
@@ -39,7 +45,9 @@ failures.
 ## Settings
 
 This plugin has no settings. Denote follows the live Light, Dark, high-contrast,
-and forced-colors environment automatically.
+and forced-colors environment automatically. Theme colors are resolved into
+SVG attributes before sanitization, so copied and exported diagrams keep their
+colors and a matching solid background without application CSS.
 
 ## Disable behavior
 
@@ -58,6 +66,6 @@ unlock.
 
 ## Third-party licenses
 
-The downloaded renderer bundles Mermaid 12.0.0 under the MIT License and
-DOMPurify 3.4.17 under its Apache License 2.0 option. Source notices and license
-texts ship in the verified archive under `legal/`.
+The downloaded renderer bundles exactly Pele 1.12.0, with no runtime
+dependencies. Its MIT license and upstream Lucide ISC notice ship under
+`legal/`. Denote's independent host SVG sanitizer remains separate.

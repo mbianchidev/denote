@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import type { Code, Nodes } from "mdast";
 import { fromMarkdown } from "mdast-util-from-markdown";
-import mermaid from "mermaid";
+import { parse as parseDiagram } from "pele";
 import { describe, expect, it } from "vitest";
 import {
   calendarQuery,
@@ -237,20 +237,14 @@ describe("Welcome vault example inventory", () => {
     expect(model.columns.map((column) => column.cards.length)).toEqual([1, 1, 1]);
   });
 
-  it("parses the titled Mermaid decision loop locally", async () => {
+  it("parses the titled Mermaid decision loop locally", () => {
     const blocks = fromMarkdown(pluginSource("Mermaid flow.md")).children.filter(
       (node): node is Code => node.type === "code" && node.lang === "mermaid",
     );
     expect(blocks).toHaveLength(1);
     expect(blocks[0].value).toMatch(/^%% denote:title: Paper glider trial\n/);
-    mermaid.initialize({
-      startOnLoad: false,
-      securityLevel: "strict",
-      htmlLabels: false,
-      suppressErrorRendering: true,
-    });
-    await expect(mermaid.parse(blocks[0].value)).resolves.toEqual(
-      expect.objectContaining({ diagramType: expect.stringMatching(/flowchart/) }),
+    expect(parseDiagram(blocks[0].value)).toEqual(
+      expect.objectContaining({ type: "flowchart" }),
     );
   });
 
