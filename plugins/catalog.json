@@ -1006,5 +1006,143 @@
       "trusted": true
     },
     "guide": "# Encrypted credential store\n\n## Purpose\n\nKeep service names, usernames, passwords/tokens, URLs, and private entry notes\ninside one independently encrypted file, never a Markdown credential table.\n\n## Enablement and permissions\n\nDisabled by default. The isolated credential-store permission opens trusted\nhost controls. Downloaded plugin code never receives entries, passwords, keys,\nclipboard contents, or filesystem access. Enabling does not create a store.\n\n## Usage\n\nOpen Credential store from the command palette. Create a master password of at\nleast 12 characters, independent of whole-vault encryption, or unlock the\nexisting store. Forgotten passwords cannot be recovered.\nCreate, edit, delete, search, and sort entries after unlocking. Secrets are\nmasked until Show and hide automatically. Copy username and Copy secret are\nseparate actions. Clipboard contents may be read or retained by other apps.\n\nBack up the vault's hidden `.denote/credentials.dncred` file. Encrypted backup\nand import retain every field as ciphertext. Replacing a store requires\nauthentication and explicit confirmation. Plaintext export separately requires\nthe current master password and a risk confirmation every time. The export\nremains plaintext outside Denote's cleanup.\n\n## Settings\n\nChoose the bounded inactivity timeout and clipboard-clear timeout in the host\npanel. Lock now ends the session immediately. Application deactivation, vault\nlock/switch, plugin removal, and exit also lock it. No password remembrance or\nkeychain recovery mechanism is silently enabled.\n\n## Disable behavior\n\nDisabling clears the active view and native key, removes plugin code, and\nleaves the encrypted credential file intact. Plugin-generated-data cleanup\ndoes not delete it. Turning whole-vault encryption off never decrypts its\nindependent inner container. Keep the master password and encrypted backup.\n\n## Troubleshooting\n\nAuthentication, damaged data, unknown formats, changed files, clipboard failures,\nand cancelled transfers are explicit errors, never an empty replacement store.\nPreserve a damaged file and restore a verified encrypted backup.\nThe store uses Argon2id and XChaCha20-Poly1305. All entry fields are encrypted;\nthe format, random salt/nonce, fixed filename, and padded file size are visible.\nDenote does not write entry plaintext into indexes, revisions, logs, or temporary\nfiles. An unlocked device, debugger, clipboard history, screen capture, swap,\nor OS crash dump remains outside that guarantee.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.linter",
+      "name": "Linter",
+      "version": "0.1.0",
+      "description": "Run approved local linters, inspect versioned diagnostics, and preview safe fixes.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "code",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.12.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "tooling"
+        },
+        {
+          "capability": "project-context"
+        },
+        {
+          "capability": "sidebar"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.13.0/denote.linter-0.1.0.tgz",
+      "sha256": "faf6b797d3a25f2b1935cb863facf15605e172dc1798a0fb7203aa52bf1011ec",
+      "sizeBytes": 19147
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "6c2bfeafc61ddb47aacafe48bd1e73c8cdc1a752",
+      "trusted": true
+    },
+    "guide": "# Linter\n\n## Purpose\n\nRun an installed linter and inspect its errors and warnings without leaving the\nsource editor. Linter and Compiler share host process and diagnostic contracts,\nnot plugin implementation.\n\n## Enablement and permissions\n\nDisabled by default. Tooling permits bounded, versioned diagnostics and local\ncommands only after you configure and approve their exact executable and\narguments. Sidebar adds the Linter view; Project context selects the active\nproject or the vault root. Enabling never starts a linter.\n\nNative tools run with your operating-system permissions. Approve only trusted\ntools and projects. Denote never installs tools and refuses encrypted vaults,\nincluding while unlocked. No plaintext mirror or encryption key is provided.\n\n## Usage\n\nOpen Linter, select a language and scope, and choose an installed executable.\nUse **Save and approve**, then **Run linter**. Arguments are a JSON array, not\na shell command. `%FILE%` expands to the selected file relative to the working\ndirectory. Choose the Unix, MSVC, ESLint JSON, or Cargo JSON output parser.\n\nFor ESLint, approve the installed interpreter and ESLint entrypoint with\n`--format json`; enable stdin and add `--stdin` and `--stdin-filename %FILE%`\nas separate arguments. Do not use `--fix` or write flags. Fix proposals returned\nby the linter appear under Problems as **Preview fix**. Open the matching\neditable Source view, inspect Before and After, then choose **Apply fix**.\nApplication is undoable and never replaces an intervening edit or external save.\n\nProblems can be filtered by severity and text. Select a result to navigate to its\nfile, line, and column. Inline underlines, gutter indicators, and hover details\nsupplement the list. A clean run clears earlier diagnostics. Edits, project\nchanges, and external source changes invalidate stale results.\n\n## Settings\n\nCommands are local application metadata, separately approved per vault, project,\nand language. Automatic runs use an approved vault profile only when no project\nprofile exists; a saved project profile overrides it, including explicit\ndisablement. Choose manual, on-save, or debounced runs. Debounced runs require\nstdin so the linter receives current unsaved content without a temporary file.\nSaved-file runs require saving edits or explicitly choosing saved files.\nConfigure column units to match the tool: UTF-16 for ESLint/MSVC, Unicode for\nRust, or UTF-8 bytes when the tool emits byte columns.\n\nThe host limits source snapshots to 5,000 files, 4 MiB per file, and 64 MiB total;\noutput to 8 MiB and 64 KiB per line; results to 1,000 diagnostics; and timeouts\nto 1-600 seconds. Narrow large projects rather than treating omitted results as\na clean run.\n\n## Disable behavior\n\nDisabling stops every process, clears diagnostics and pending fixes, unregisters\nviews, and removes downloaded plugin code. Notes remain unchanged. Configuration\npersists until plugin data is explicitly cleared.\n\n## Troubleshooting\n\nMissing executables, changed executable hashes, malformed output, failed exits,\ntimeouts, and output limits remain visible. Review and approve an updated\nexecutable again. Use **Cancel** for a running linter. A stale fix must be\ngenerated and previewed again. For tools that read project configuration or load\nextensions, trust those files before approving execution.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.compiler",
+      "name": "Build and compiler",
+      "version": "0.1.0",
+      "description": "Stream approved local builds and navigate compiler diagnostics tied to their source and run.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "code",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.12.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "tooling"
+        },
+        {
+          "capability": "project-context"
+        },
+        {
+          "capability": "sidebar"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.13.0/denote.compiler-0.1.0.tgz",
+      "sha256": "439a9cfab97831fd3f124390c9e8d87c57384d118eca3c1e5e7865b8be33139c",
+      "sizeBytes": 19135
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "6c2bfeafc61ddb47aacafe48bd1e73c8cdc1a752",
+      "trusted": true
+    },
+    "guide": "# Build and compiler\n\n## Purpose\n\nRun an installed build tool or compiler, stream its output, and navigate errors\nand warnings. This package uses the SDK's shared process and diagnostic\ncontracts and does not import Linter.\n\n## Enablement and permissions\n\nDisabled by default. Tooling permits approved local commands and version-bound\ndiagnostics. Project context supplies the active project identity; Sidebar adds\nthe build view. Enabling starts nothing and installs no compiler, build system,\nlanguage server, shell, or debugger.\n\nNative tools and project build scripts have ordinary operating-system access.\nApprove only trusted executables, arguments, and projects. Native builds are\nunavailable in encrypted vaults even while unlocked; no plaintext mirror or\nencryption material is provided.\n\n## Usage\n\nOpen Build and compiler. Select a language profile or **All languages** and\nchoose the active project or vault scope. Choose the installed executable,\nenter a JSON argument array, select its output parser, and **Save and approve**.\nUse **Build** to start a new identified run.\n\nCargo supports `[\"check\", \"--message-format=json\"]` with Cargo JSON.\nGCC/Clang-style `file:line:column: severity: message` output uses Unix;\nMicrosoft compiler `file(line,column): severity code: message` uses MSVC.\nArguments are passed directly without implicit shell expansion. `%FILE%`\nselects the current file relative to the approved working directory.\n\nWhen edits are unsaved, **Save all and build** uses the ordinary save/conflict\nbarrier. **Run on saved files** explicitly ignores editor drafts without\noverwriting them. Diagnostics from saved files are not placed on an unsaved\ndocument. A save conflict prevents the build.\n\nOutput streams stdout and stderr separately. Each result names its build run,\nproject, source file, and captured source version. Failed exits remain failures.\nFilter Problems by severity or text, and select a current result to navigate.\n**Cancel** terminates the entire child process group, including descendants.\n\n## Settings\n\nConfigurations are host-owned local metadata per vault, project, and language.\nAutomatic runs inherit the approved vault profile only for unconfigured projects;\na saved project profile, including a disabled one, overrides it.\nManual runs are the default; on-save builds require explicit approval. Builds\nnever consume a pretend unsaved snapshot or silently save a draft. Choose column\nunits to match compiler output and a timeout from 1 to 600 seconds.\n\nSource and output limits match the shared Linter contract: 5,000 source files,\n4 MiB per file, 64 MiB total, 8 MiB output, 64 KiB per line, and 1,000 diagnostics.\nThere is no tool downloader or fallback command.\n\n## Disable behavior\n\nDisabling cancels all builds, clears derived diagnostics and output, unregisters\nthe view, and removes downloaded plugin code. Source, generated build outputs,\nand existing project files are not removed. Clearing plugin data also removes\nsaved command approval.\n\n## Troubleshooting\n\nCheck the executable, JSON arguments, working directory, output parser, and\ncolumn units. Updated executable bytes require approval again. Missing tools,\ninvalid output, nonzero exits, timeouts, and limits remain visible. If files\nchange during a run, stale diagnostics are discarded; run again after saving.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.terminal",
+      "name": "Ghostty terminal",
+      "version": "0.1.0",
+      "description": "Open explicitly approved interactive shells in host-rendered Ghostty terminal tabs.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "code",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.12.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "terminal"
+        },
+        {
+          "capability": "project-context"
+        },
+        {
+          "capability": "sidebar"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.13.0/denote.terminal-0.1.0.tgz",
+      "sha256": "498fd7e8ecef23cba06ea53a1e0fa614b745cb55c0a1762bab27e725470878cb",
+      "sizeBytes": 16956
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "6c2bfeafc61ddb47aacafe48bd1e73c8cdc1a752",
+      "trusted": true
+    },
+    "guide": "# Ghostty terminal\n\n## Purpose\n\nOpen interactive terminal tabs using Ghostty's bundled WebAssembly terminal\nengine through the maintained ghostty-web adapter. The host owns the renderer,\nPTY, input, working directory, and process lifetime; downloadable plugin code\nonly registers the terminal surface.\n\n## Enablement and permissions\n\nDisabled by default. Terminal permits interactive shells only after explicit\nexecutable and argument approval. Project context selects an active project;\nSidebar adds the terminal view. Enabling neither chooses nor starts a shell.\nNo shell, compiler, debugger, language server, or binary is downloaded.\n\nShells have normal operating-system permissions, not the plugin worker sandbox.\nUse trusted shells and projects. All native tooling is refused in encrypted\nvaults, including while unlocked; Denote passes no plaintext mirror, decrypted\ndocument, or encryption key to the terminal.\n\n## Usage\n\nChoose an installed shell, enter its arguments as a JSON array, and **Save and\napprove**. **New terminal** starts a tab in the selected project or vault root.\nUse terminal tabs to switch sessions, and **Close terminal** to close one.\nClosing a running tab asks before terminating its shell and jobs.\n\nTerminal input, normal ANSI colors, Unicode, resize, and shell exit codes are\npreserved. Use the named Copy, Paste, and Search controls. Multiline or\ncontrol-character paste is reviewed before submission. Tab can leave the\nterminal; use the explicit **Send Tab** control for shell completion.\nKeyboard users can inspect output and activate detected file and HTTP(S) links\nthrough ordinary buttons. File links stay within the captured project; external\nURLs use Denote's existing external-link approval.\n\n## Settings\n\nShell configurations are local application metadata per vault and project,\nnever Markdown. Do not put passwords or tokens in command arguments. Shell\nhistory follows the chosen shell's normal configuration; Denote does not save\nterminal output or history to the vault.\n\nInteractive PTYs currently support macOS and Linux. Windows reports that\nprocess-tree shutdown is not yet verified and does not start a shell. The host\nlimits terminal tabs to eight, cells to 2-500 in each dimension, queued output\nto 1 MiB, and each input request to 64 KiB. Displayed scrollback is bounded.\n\n## Disable behavior\n\nClosing a terminal terminates its shell and interactive job groups and releases\nPTY and renderer resources. Changing the focused project preserves each tab's\ncaptured root. Removing or moving that project invalidates its sessions. Vault\nswitches, disable, crashes, and app shutdown terminate sessions without leaving\na background shell. Vault switches and quitting warn about running terminals.\nDisabling\nalso removes downloaded plugin code and derived output, never project content.\n\n## Troubleshooting\n\nShell startup errors and nonzero exits remain visible on their tab. Reapprove\nupdated executable bytes. If output exceeds the bounded queue, Denote stops\nthe shell and reports the limit rather than silently dropping output. On\nunsupported platforms, ordinary editing and the other plugins remain available.\n"
   }
 ]
