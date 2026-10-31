@@ -357,6 +357,9 @@ fn emoji_permission_never_grants_privileged_services_during_activation_or_after_
                     arguments: vec![],
                 },
                 None,
+                manager
+                    .read_native_tool_access()
+                    .expect("tool startup access"),
             )
             .expect_err("filesystem/process remains unavailable");
         assert!(

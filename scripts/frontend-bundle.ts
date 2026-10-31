@@ -1,19 +1,44 @@
-import { parse } from "acorn";
+import { parse, tokenizer } from "acorn";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import type { Plugin } from "vite";
 
 const MAX_JAVASCRIPT_BYTES = 500_000;
+
+export function extractGhosttyWasm(source: string, expected: Uint8Array): { start: number; end: number; bytes: Buffer } {
+  const literals = [];
+  for (const token of tokenizer(source, { ecmaVersion: "latest", sourceType: "module" })) {
+    const value: unknown = Reflect.get(token, "value");
+    if (token.type.label !== "string" || typeof value !== "string" ||
+        !value.startsWith("data:application/wasm;base64,")) continue;
+    const encoded = value.slice("data:application/wasm;base64,".length);
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error("Unsupported Ghostty WASM encoding.");
+    literals.push({ start: token.start, end: token.end, bytes: Buffer.from(encoded, "base64") });
+  }
+  if (literals.length !== 1) throw new Error("Expected exactly one embedded Ghostty WASM module.");
+  if (!literals[0].bytes.equals(expected)) throw new Error("Embedded Ghostty WASM does not match the published package asset.");
+  return literals[0];
+}
 
 export function frontendBundle(): Plugin {
   return {
     name: "denote-frontend-bundle",
     apply: "build",
     transform(source, id) {
+      if (id.replaceAll("\\", "/").endsWith("/node_modules/ghostty-web/dist/ghostty-web.js")) {
+        const wasm = extractGhosttyWasm(source, readFileSync(resolve(dirname(id), "../ghostty-vt.wasm")));
+        const reference = this.emitFile({ type: "asset", name: "ghostty-vt.wasm", source: wasm.bytes });
+        this.emitFile({ type: "asset", name: "ghostty-web-LICENSE.txt", source: readFileSync(resolve(dirname(id), "../LICENSE")) });
+        this.emitFile({ type: "asset", name: "ghostty-LICENSE.txt", source: readFileSync(resolve(dirname(id), "../../../docs/licenses/ghostty.txt")) });
+        return { code: source.slice(0, wasm.start) + `import.meta.ROLLUP_FILE_URL_${reference}` + source.slice(wasm.end), map: null };
+      }
       const match = id.replaceAll("\\", "/").match(
         /\/node_modules\/@shikijs\/langs\/dist\/([^/]+)\.mjs$/,
       );
       if (!match || Buffer.byteLength(source) < MAX_JAVASCRIPT_BYTES) {
         return;
       }
+
       const program = parse(source, { ecmaVersion: "latest", sourceType: "module" });
       const declaration = program.body.find(
         (statement) => statement.type === "VariableDeclaration",

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { build } from "vite";
-import { frontendBundle } from "./frontend-bundle";
+import { frontendBundle, extractGhosttyWasm } from "./frontend-bundle";
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -45,6 +45,16 @@ async function bundleSource(
 }
 
 describe("frontend bundle", () => {
+  it("extracts Ghostty's byte-identical local WASM without executing package code", () => {
+    const bytes = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    const literal = JSON.stringify(`data:application/wasm;base64,${bytes.toString("base64")}`);
+    const source = `export const module = new URL(${literal}, import.meta.url);`;
+    const extracted = extractGhosttyWasm(source, bytes);
+    expect(extracted.bytes).toEqual(bytes);
+    expect(source.slice(extracted.start, extracted.end)).toBe(literal);
+    expect(() => extractGhosttyWasm(source, Buffer.from("different"))).toThrow(/match/);
+    expect(() => extractGhosttyWasm("export const missing = true;", bytes)).toThrow(/exactly one/);
+  });
   it("moves large grammar data into an exact local JSON asset", async () => {
     const grammar = {
       name: "synthetic",

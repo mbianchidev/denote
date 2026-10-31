@@ -41,6 +41,8 @@ export const PLUGIN_CAPABILITIES = [
   "note-events",
   "project-context",
   "code-intelligence",
+  "tooling",
+  "terminal",
   "source-control",
   "automatic-local-commit",
   "automatic-git-push",
@@ -2144,6 +2146,8 @@ export interface PluginCapabilities {
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
   codeIntelligence?: import("./codeIntelligence").PluginCodeIntelligenceCapability;
+  tooling?: import("./tooling").PluginToolingCapability;
+  terminal?: import("./tooling").PluginTerminalCapability;
   sourceControl?: PluginSourceControlCapability;
   automaticLocalCommit?: PluginAutomaticLocalCommitCapability;
   secureStorage?: PluginSecureStorage;

@@ -93,7 +93,9 @@ tauri-plugin-deep-link = "2"
 tauri = { version = "=2.11.6", default-features = false, features = ["test"] }
 
 [target."cfg(unix)".dependencies]
+portable-pty = "0.9.0"
 rlimit = "0.11.0"
+sysinfo = { version = "0.40.1", default-features = false, features = ["system"] }
 xattr = "1.6.1"
 
 [target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]

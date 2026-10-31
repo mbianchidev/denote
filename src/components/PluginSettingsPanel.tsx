@@ -62,6 +62,8 @@ const PERMISSION_LABELS: Record<string, string> = {
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",
   "code-intelligence": "Read versioned source and use explicitly approved native language servers and debuggers",
+  tooling: "Run approved local linters or build tools, read versioned diagnostics, and preview source fixes before applying",
+  terminal: "Open interactive shells with ordinary operating-system access after explicit executable approval",
   "source-control": "Provide source control status and actions",
   "automatic-local-commit": "Allow automatic local commits",
   "automatic-git-push": "Push new automatic commits to an existing upstream",

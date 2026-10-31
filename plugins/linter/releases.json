@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "6c2bfeafc61ddb47aacafe48bd1e73c8cdc1a752",
+    "kind": "source",
+    "sourcePath": "plugins/linter",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.13.0/denote.linter-0.1.0.tgz",
+      "sha256": "faf6b797d3a25f2b1935cb863facf15605e172dc1798a0fb7203aa52bf1011ec",
+      "sizeBytes": 19147
+    }
+  }
+]

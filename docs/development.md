@@ -1017,6 +1017,73 @@ source commit for the intended Denote release and commit the generated catalog
 and `plugins/code-intelligence/releases.json` separately. No tool executable or
 plugin archive belongs in Git or a desktop installer.
 
+### Linter, build and terminal plugin development
+
+The independent packages are `denote.linter`, `denote.compiler`, and
+`denote.terminal`. Their workers register typed host surfaces only; compiler
+and linter share SDK diagnostics, not package implementation. Commands remain
+unconfigured until explicit executable/argument approval. Native tooling is
+refused for every encrypted vault, including while unlocked.
+
+```bash
+npm exec --no -- vitest run packages/plugin-sdk/src/tooling.test.ts \
+  plugins/linter/tests plugins/compiler/tests plugins/terminal/tests \
+  src/plugins/toolingHost.test.ts src/plugins/terminalHost.test.ts \
+  src/plugins/toolingRuntime.test.ts src/lib/codeEditor.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml tooling --lib
+npm run build
+npm exec --no -- playwright test benchmarks/tooling.perf.ts
+```
+
+The browser gate runs real verified worker bundles and the bundled Ghostty WASM
+against synthetic native IPC. It exercises approval without execution, source
+markers/gutters, reviewed fixes, clean-run replacement, explicit unsaved-build
+handling, failed saves, streamed output, cancellation, failure status, Unicode,
+keyboard focus escape, terminal search/copy, close confirmation and unsupported
+Windows PTYs. Native tests separately launch actual process groups and PTYs,
+including inherited output, background job groups, stale starts, encrypted
+refusal and the startup/transition gate. Browser mocks alone do not prove native
+process cleanup. The existing native Git suite covers cancellation, branch
+switching, failure and conflict recoverability.
+
+`ghostty-web` 0.4.0 has no runtime dependencies or install script. Its
+423,045-byte Ghostty WASM is verified byte-for-byte against the package asset
+before build-time externalization. Both MIT notices ship locally, including
+`docs/licenses/ghostty.txt`; runtime CDN fallback is forbidden. PTYs support
+macOS/Linux. Windows reports that process-tree shutdown is not yet verified,
+and must not silently fall back to another terminal engine or launch a shell.
+Finite build/lint commands remain available on Windows through process groups.
+
+Source snapshots exclude ignored dependency/build trees unless a file is
+explicitly open. Saved-file fix offsets account for CRLF normalization; fix
+proposals retain their original replacement text across native path translation.
+Automatic runs inherit an approved vault profile only for unconfigured projects;
+explicit project profiles, including disabled ones, override it.
+The requirement audit also covers language-specific on-save builds, unsaved
+nested-project files inside a parent build root, and partial compiler output
+before a newline or exit. The shared output adapter preserves UTF-8 and path
+redaction across every possible split in a synthetic output line.
+
+The frozen `plugins-v8` inventory adds only the three tooling exercises.
+Earlier inventories and marker bytes remain unchanged; existing files are
+preserved, locked vaults defer, unlocked additions use ciphertext, and deleted
+v8 examples are not restored. Source, SDK and build inputs must be committed
+before pinning each new `0.1.0` package for the intended Denote release. Keep
+the application at the latest published version; only the release script bumps it.
+
+For unpublished local handoff, follow **Preview an unpublished plugin on macOS**
+and stage the three archives separately:
+
+```bash
+npm run dev:plugin -- denote.linter --once
+npm run dev:plugin -- denote.compiler --once
+npm run dev:plugin -- denote.terminal --once
+```
+
+Load the ignored `.plugin-dev/<id>.tgz` files through Denote Development's local
+archive picker. Neither the development nor production DMG embeds plugin
+archives, and production downloads never fall back to local files.
+
 ### Time tracking plugin development
 
 Use `npm run dev:plugin -- denote.time-tracking` with the isolated development
@@ -1613,13 +1680,21 @@ versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-31**.
-All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the main-branch merge into the Pele renderer trial using the
+Rechecked again for the Phase 4 requirement audit, UI evidence, and distinct
+sidebar icons on the same date. The seven compatible/current release pairs and
+the linked upstream and RustSec outcomes below remain unchanged; no compatible
+published replacement removes a local backport.
+All seven vendor directories and `[patch.crates-io]` entries were rechecked at
+the start of the Phase 4 linter, build, and terminal implementation using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
-The complete release-note, tracker, and RustSec check found the same versions,
+The fresh release-note, tracker, and RustSec check found the same versions,
 compatibility constraints, and no compatible replacement as the previous check.
 Published versions and dependency requirements were read from the
-[official sparse registry](https://index.crates.io/config.json); earlier checks
+[official sparse registry](https://index.crates.io/config.json), including the
+[compatible GLib records](https://index.crates.io/gl/ib/glib),
+[macro records](https://index.crates.io/gl/ib/glib-macros),
+[GTK3 macro records](https://index.crates.io/gt/k3/gtk3-macros), and
+[URLPattern records](https://index.crates.io/ur/lp/urlpattern). Earlier checks
 found that the [crates.io API](https://crates.io/data-access) returned HTTP 403.
 Release notes, linked upstream fixes and backport requests, and
 the [official RustSec advisory sources](https://github.com/RustSec/advisory-db/tree/main/crates)

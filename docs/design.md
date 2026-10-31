@@ -332,6 +332,14 @@ semantic meaning.
 ### Navigation
 
 The activity rail is icon-led and uses an active indicator on the leading edge.
+Optional sidebar tools use distinct, host-owned role icons: a terminal prompt for
+Terminal, a document with an overlaid magnifying glass for Linter, a circuit board
+for Compiler, and braces for Code intelligence. Reference/static views use an
+open book. Git, graphs, tasks, calendars, reminders, clocks, comments, speech and
+credentials retain their own established icons. The same glyph follows each
+view into **Organize plugins**, including hidden entries; names, keyboard
+controls and focus remain authoritative. Icons use current-color 19px strokes
+at the rail and never render downloaded SVG or executable plugin UI.
 File rows, tabs, and outline entries share compact hover and selected states.
 Plugin source-control providers receive distinct, named rail buttons without
 becoming static sidebar views. Their host-rendered sidebar starts with a compact
@@ -1057,6 +1065,27 @@ data. Unsupported/external source locations never masquerade as working links.
 Native disclosure sections contain setup and logs without traps or custom
 dialogs. No-server, disabled, busy, stale, crash, unsupported and encrypted states
 keep ordinary source editing available.
+
+### Optional linters, builds and terminals
+
+Linter and Build and compiler reuse the compact code-tool sidebar, shared
+buttons, native language/scope selectors and disclosed executable setup.
+**Save and approve** is separate from execution. Written run IDs, exit status,
+separate output streams and error text remain visible. Problems expose severity,
+rule, path and position through named buttons; underlines/gutters/hover are
+supplementary. Fix previews show Before/After and a separately explicit
+**Apply fix**. Unsaved builds offer **Save all and build** or **Run on saved
+files**, never an implicit save.
+
+Ghostty terminal uses host-owned, keyboard-operable tabs within the same
+workbench sidebar. Tab arrows/Home/End change tabs; ordinary Tab leaves terminal
+input, and **Send Tab** is the explicit shell-completion alternative. The input
+has a visible focus ring and a named native textarea. Search, Copy, Paste,
+project-relative file navigation and detected links have ordinary controls;
+multiline/control-character paste is reviewed. A bounded text alternative
+supplements the canvas. Running-tab close, vault switch, shell reconfiguration
+and quit confirmations name the termination consequence. Unsupported platforms,
+startup failures, output limits and failed exits remain written states.
 
 ### Source Outline
 

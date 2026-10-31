@@ -2,10 +2,58 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityRail } from "./ActivityRail";
+import type { PluginToolContribution } from "@denote/plugin-sdk";
+import type { PluginCodeContribution } from "../plugins/codeIntelligence";
 
 describe("ActivityRail", () => {
   beforeEach(() => {
     localStorage.clear();
+  });
+
+  it("uses distinct role-based sidebar icons without guessing plugin IDs or titles", async () => {
+    const user = userEvent.setup();
+    const onPluginViewChange = vi.fn();
+    const tools: PluginToolContribution[] = [
+      { pluginId: "denote.synthetic-checks", id: "denote.synthetic-checks.sidebar", title: "Checks",
+        kind: "linter", formats: ["unix"] },
+      { pluginId: "denote.synthetic-build", id: "denote.synthetic-build.sidebar", title: "Build",
+        kind: "build", formats: ["unix"] },
+      { pluginId: "denote.synthetic-shell", id: "denote.synthetic-shell.sidebar", title: "Shell",
+        kind: "terminal", formats: [] },
+    ];
+    const code: PluginCodeContribution = {
+      pluginId: "denote.synthetic-code", id: "denote.synthetic-code.sidebar", title: "Language tools",
+      languages: [{ id: "rust", title: "Rust", server: "Synthetic", debugger: "Synthetic", setup: "Choose a tool." }],
+    };
+    const reference = { id: "denote.synthetic-reference.sidebar", title: "Reference" };
+    render(<ActivityRail calendars={[]} activeCalendar={null} onCalendarChange={vi.fn()}
+      activeView="files" activePluginView={tools[2].id} activeSourceControlProvider={null}
+      activeNoteGraph={null} activeTaskList={null} pluginViews={[...tools, code, reference]}
+      toolProviders={tools} codeProviders={[code]} sourceControlProviders={[]} noteGraphs={[]} taskLists={[]}
+      theme="dark" onViewChange={vi.fn()} onPluginViewChange={onPluginViewChange}
+      onSourceControlProviderChange={vi.fn()} onNoteGraphChange={vi.fn()} onTaskListChange={vi.fn()}
+      onAbout={vi.fn()} onThemeToggle={vi.fn()} />);
+    for (const [title, icon] of [
+      ["Checks", "file-search-corner"], ["Build", "circuit-board"], ["Shell", "square-terminal"],
+      ["Language tools", "braces"], ["Reference", "book-open"],
+    ]) {
+      const button = screen.getByRole("button", { name: title });
+      const glyph = button.querySelector(`.lucide-${icon}`);
+      expect(glyph).not.toBeNull();
+      expect(glyph).toHaveAttribute("aria-hidden", "true");
+      expect(glyph).toHaveAttribute("stroke", "currentColor");
+      expect(glyph).toHaveAttribute("stroke-width", "1.8");
+      expect(glyph).toHaveAttribute("width", "19");
+    }
+    const shell = screen.getByRole("button", { name: "Shell" });
+    expect(shell).toHaveAttribute("aria-pressed", "true");
+    shell.focus();
+    await user.keyboard("{Enter}");
+    expect(onPluginViewChange).toHaveBeenCalledWith(tools[2].id);
+    await user.click(screen.getByLabelText("Organize plugins"));
+    const manager = screen.getByRole("heading", { name: "Organize plugins" }).parentElement!;
+    const row = within(manager).getByText("Shell", { exact: true }).closest("li")!;
+    expect(row.querySelector(".lucide-square-terminal")).not.toBeNull();
   });
 
   it("opens both sensitive host sidebars by keyboard without granting worker sidebar access", async () => {

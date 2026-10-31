@@ -357,6 +357,22 @@ button:disabled {
   white-space: nowrap;
 }
 
+.activity-rail__plugin-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.activity-rail__plugin-label > svg {
+  flex-shrink: 0;
+}
+
+.activity-rail__plugin-label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .activity-rail__plugin-manager-panel input {
   min-width: 0;
   height: 28px;

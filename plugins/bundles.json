@@ -16,7 +16,7 @@
       {
         "id": "terminal",
         "name": "Terminal",
-        "candidatePluginIds": []
+        "candidatePluginIds": ["denote.terminal"]
       },
       {
         "id": "language-server",
@@ -28,12 +28,12 @@
       {
         "id": "linter",
         "name": "Linter",
-        "candidatePluginIds": []
+        "candidatePluginIds": ["denote.linter"]
       },
       {
         "id": "compiler",
         "name": "Compiler",
-        "candidatePluginIds": []
+        "candidatePluginIds": ["denote.compiler"]
       },
       {
         "id": "code-navigation",

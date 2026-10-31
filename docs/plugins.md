@@ -306,9 +306,9 @@ start and does not use a plugin capability. Specialized future grammars would
 need a separately approved typed contribution contract and bundled package;
 plugins cannot inject parsers or download executable grammar code through API
 version 1.
-Persistent terminals remain separate future plugin work. The additive
-`code-intelligence` contract below owns project-scoped LSP/DAP sessions; it does
-not extend bounded `process.run`.
+The additive `code-intelligence`, `tooling`, and `terminal` contracts below own
+their separately approved sessions. They do not give plugin workers a process
+handle or turn bounded `process.run` into a persistent shell.
 
 ### Code intelligence and native protocol sessions
 
@@ -379,6 +379,81 @@ locked. Plugins must use host APIs rather than reading decrypted temporary
 files. A Git plugin therefore stages ciphertext only, tracks
 `.denote/encryption.json` as binary, and passes the host encryption preflight
 before committing.
+
+### Linters, builds, and interactive terminals
+
+`packages/plugin-sdk/src/tooling.ts` defines the common registration, captured
+document version, execution ID, diagnostic, fix proposal, parser, and validation
+contracts. Linter and Compiler independently import that SDK, never one another.
+`capabilities.tooling.register({ id, title, kind, formats, parse })` accepts one
+`linter` or `build` provider per plugin. `parse` receives bounded stdout/stderr,
+vault-relative source paths and versions, the captured project/root, and a run
+ID. The host checks returned run/file/version associations independently.
+Supported parsers are Unix, MSVC, ESLint JSON, and Cargo JSON. Column units are
+configured and translated to editor UTF-16 positions by the host.
+Finite command output is streamed before a newline or process exit. Incremental
+UTF-8 decoding and path redaction retain split characters and vault-path prefixes
+between reads; ESLint fix text stays outside generic path redaction.
+
+The worker cannot select an executable or start a process. Native
+`tooling_commands.rs` owns per-vault/project/language configuration, explicit
+approval, executable SHA-256 checks, safe path resolution, source hashes and
+current-scope validation. An All languages profile is the fallback only when a
+specific profile has never been configured. Commands use argument arrays, not
+implicit shell expansion; `%FILE%` is relative to the approved working directory.
+Automatic save/change triggers require their own approved configuration.
+Unconfigured projects inherit an approved vault-wide automatic profile; a saved
+project profile overrides it, including explicit disablement.
+After-save builds select the saved document's language-specific profile before
+falling back to All languages, and keep their run bound to the actual approved
+profile. Saved-content consent covers every open draft inside the build root,
+including files owned by nested project roots.
+On-edit linting requires stdin, and never materializes a plaintext temp file.
+
+`ToolingHost` owns run identity, cancellation, streamed output, Problems filters,
+source markers/gutters/hover, and current-version navigation. A clean run clears
+earlier diagnostics. Edits invalidate open-file results immediately; native hash
+checks reject changed saved files at completion, during bounded refresh, and
+before navigation or fixes. A failed exit is a failed run, even if parsing
+returns no diagnostics. Builds with unsaved files require **Save all and build**
+through the ordinary conflict barrier or explicit **Run on saved files**.
+Saved-file diagnostics never decorate an unsaved draft.
+
+Only a linter may return fix proposals. The host requires an editable open
+source, displays Before/After, and rechecks run identity, document version,
+source text, saved-file hash and read-only state before an undoable transaction.
+Known direct-write linter flags are refused; tools and project configuration
+remain trusted native code, not a filesystem sandbox.
+
+`capabilities.terminal.register({ id, title })` is metadata only. The host's
+lazy Ghostty adapter uses `ghostty-web` 0.4.0 and byte-verified bundled
+`ghostty-vt.wasm`, with no runtime CDN or tool download. Upstream MIT notices
+ship as assets. PTYs currently support macOS/Linux; Windows reports the
+unverified process-tree shutdown limitation and cannot start a terminal.
+Tabs retain their starting project when focus changes. File links resolve
+within that starting root; external links use Denote's approval policy.
+Native job shutdown covers interactive process groups, not just the shell PID.
+Closing a running tab, switching vaults, changing shell setup and quitting warn
+before termination. Disabling remains the explicit force-stop recovery action.
+
+`tooling.rs` owns process groups, PTYs, bounded queues, input ordering, exit
+status and teardown for these integrations and legacy bounded process actions.
+Startup takes shared native-tool access before vault access. Disable, vault
+switch and encryption transitions take exclusive startup access and terminate
+sessions before removing packages or changing content boundaries. Encrypted
+vaults refuse all external processes even while unlocked; no decrypted mirror
+or encryption material crosses this boundary. LSP/DAP startup shares this gate.
+
+Limits are 12 external-tool sessions, eight terminal tabs, 5,000 source files,
+4 MiB per source/64 MiB total, 8 MiB diagnostic output, 64 KiB per output line,
+1,000 diagnostics, 1-600 seconds per finite run, and 2-500 terminal rows/columns.
+Terminal output/input queues are bounded; overflow stops the process with a
+visible failure instead of silently dropping unrendered output. Displayed
+scrollback is 2,000 lines with a separate bounded text alternative. Disabling,
+worker failure, vault changes and shutdown cancel pending starts as well as
+already-running processes, and clear derived output without deleting user files.
+Source snapshots omit ignored dependency/build trees unless a source is explicitly
+open, so generated dependencies do not consume the project's source budget.
 
 ### Local emoji picker
 

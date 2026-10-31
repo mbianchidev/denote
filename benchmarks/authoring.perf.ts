@@ -74,8 +74,23 @@ for (const marker of ["-", "+", "*"]) {
     await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
     const italic = page.getByRole("textbox", { name: "editable markdown", exact: true }).locator("em").first();
     await expect(italic).toHaveText("An invented italic sentence.");
-    await page.getByText("Second synthetic item", { exact: true }).click();
-    await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+    const item = page.getByRole("textbox", { name: "editable markdown", exact: true })
+      .getByText("Second synthetic item", { exact: true });
+    await expect(async () => {
+      await item.click();
+      await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+      await painted(page);
+      expect(await item.evaluate((element) => {
+        const owner = element.closest('[contenteditable="true"]');
+        const selection = window.getSelection();
+        if (document.activeElement !== owner || !selection?.isCollapsed ||
+            !selection.anchorNode || !element.contains(selection.anchorNode)) return false;
+        const prefix = document.createRange();
+        prefix.selectNodeContents(element);
+        prefix.setEnd(selection.anchorNode, selection.anchorOffset);
+        return prefix.toString() === element.textContent;
+      })).toBe(true);
+    }).toPass({ timeout: 5000 });
     await page.keyboard.type("!");
     await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
     await page.keyboard.press("Enter");

@@ -2,14 +2,18 @@ import {
   ArrowDown,
   ArrowUp,
   Bell,
+  BookOpen,
   Bookmark,
+  Braces,
   CalendarDays,
   ChevronDown,
   ChevronRight,
   Clock3,
+  CircuitBoard,
   Eye,
   EyeOff,
   Files,
+  FileSearch2,
   FolderTree,
   GitBranch,
   GripVertical,
@@ -19,16 +23,18 @@ import {
   Mic,
   Moon,
   Network,
-  Plug,
   Search,
   KeyRound,
   Sun,
+  SquareTerminal,
   Trash2,
   Timer,
 } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import type { SidebarView } from "../types";
 import type { Theme } from "../lib/theme";
+import type { PluginToolContribution, PluginToolKind } from "@denote/plugin-sdk";
+import type { PluginCodeContribution } from "../plugins/codeIntelligence";
 import type {
   PluginAuthoringContribution,
   PluginCalendarContribution,
@@ -64,6 +70,8 @@ interface ActivityRailProps {
   } | null;
   activeTimeTracking?: { pluginId: string; providerId: string } | null;
   pluginViews: Array<{ id: string; title: string }>;
+  toolProviders?: readonly PluginToolContribution[];
+  codeProviders?: readonly PluginCodeContribution[];
   sensitiveTools?: PluginSensitiveToolContribution[];
   sourceControlProviders: PluginSourceControlContribution[];
   noteGraphs: PluginNoteGraphContribution[];
@@ -113,7 +121,7 @@ interface PluginRailItem {
     | "reminders"
     | "time-tracking"
     | "note-comments";
-  feature?: "speech" | "credential-store";
+  icon: typeof Files;
   ariaLabel?: string;
   badgeCount?: number;
   disabled?: boolean;
@@ -122,6 +130,11 @@ interface PluginRailItem {
 
 const PLUGIN_RAIL_STORAGE_KEY = "denote.plugin-rail.v1";
 const DEFAULT_GROUP = "Plugins";
+const TOOL_RAIL_ICONS: Record<PluginToolKind, typeof Files> = {
+  linter: FileSearch2,
+  build: CircuitBoard,
+  terminal: SquareTerminal,
+};
 
 const views: Array<{
   id: SidebarView;
@@ -147,6 +160,8 @@ function ActivityRailComponent({
   activeReminder = null,
   activeTimeTracking = null,
   pluginViews,
+  toolProviders = [],
+  codeProviders = [],
   sensitiveTools = [],
   sourceControlProviders,
   noteGraphs,
@@ -170,13 +185,19 @@ function ActivityRailComponent({
   const [preferences, setPreferences] = useState(loadPluginRailPreferences);
   const [dragged, setDragged] = useState<string | null>(null);
   const items = useMemo<PluginRailItem[]>(() => {
-    const sidebarItems = pluginViews.map((view) => ({
-      key: `view:${view.id}`,
-      title: view.title,
-      selected: activePluginView === view.id,
-      kind: "view" as const,
-      onSelect: () => onPluginViewChange(view.id),
-    }));
+    const toolKinds = new Map(toolProviders.map((provider) => [provider.id, provider.kind]));
+    const codeViews = new Set(codeProviders.map((provider) => provider.id));
+    const sidebarItems = pluginViews.map((view) => {
+      const toolKind = toolKinds.get(view.id);
+      return {
+        key: `view:${view.id}`,
+        title: view.title,
+        selected: activePluginView === view.id,
+        kind: "view" as const,
+        icon: toolKind ? TOOL_RAIL_ICONS[toolKind] : codeViews.has(view.id) ? Braces : BookOpen,
+        onSelect: () => onPluginViewChange(view.id),
+      };
+    });
     const sourceItems = sourceControlProviders.map((provider) => {
       const duplicateTitle = sourceControlProviders.some(
         (candidate) =>
@@ -202,6 +223,7 @@ function ActivityRailComponent({
           activeSourceControlProvider?.pluginId === provider.pluginId &&
           activeSourceControlProvider.providerId === provider.id,
         kind: "source-control" as const,
+        icon: GitBranch,
         onSelect: () =>
           onSourceControlProviderChange(provider.pluginId, provider.id),
       };
@@ -213,6 +235,7 @@ function ActivityRailComponent({
         activeNoteGraph?.pluginId === provider.pluginId &&
         activeNoteGraph.providerId === provider.id,
       kind: "note-graph" as const,
+      icon: Network,
       onSelect: () => onNoteGraphChange(provider.pluginId, provider.id),
     }));
     const taskItems = taskLists.map((provider) => ({
@@ -222,6 +245,7 @@ function ActivityRailComponent({
         activeTaskList?.pluginId === provider.pluginId &&
         activeTaskList.providerId === provider.id,
       kind: "task-list" as const,
+      icon: ListChecks,
       onSelect: () => onTaskListChange(provider.pluginId, provider.id),
     }));
     const calendarItems = calendars.map((provider) => ({
@@ -229,6 +253,7 @@ function ActivityRailComponent({
       title: provider.title,
       selected: activeCalendar?.pluginId === provider.pluginId && activeCalendar.providerId === provider.id,
       kind: "calendar" as const,
+      icon: CalendarDays,
       onSelect: () => onCalendarChange(provider.pluginId, provider.id),
     }));
     const reminderItems = reminders.map((provider) => {
@@ -247,6 +272,7 @@ function ActivityRailComponent({
           activeReminder?.pluginId === provider.pluginId &&
           activeReminder.providerId === provider.id,
         kind: "reminders" as const,
+        icon: Bell,
         badgeCount: dueCount,
         onSelect: () => onReminderChange(provider.pluginId, provider.id),
       };
@@ -258,7 +284,7 @@ function ActivityRailComponent({
         title: tool.title,
         selected: activePluginView === tool.id,
         kind: "view" as const,
-        feature: tool.feature,
+        icon: tool.feature === "speech" ? Mic : KeyRound,
         onSelect: () => onPluginViewChange(tool.id),
       })),
       ...sourceItems,
@@ -274,6 +300,7 @@ function ActivityRailComponent({
           : comments.provider.title,
         selected: false,
         kind: "note-comments" as const,
+        icon: MessageSquare,
         badgeCount: comments.count ?? 0,
         disabled: comments.disabled,
         onSelect: comments.onOpen,
@@ -286,6 +313,7 @@ function ActivityRailComponent({
         badgeCount: clockAlertCounts[provider.pluginId] ?? 0,
         selected: activeTimeTracking?.pluginId === provider.pluginId && activeTimeTracking.providerId === provider.id,
         kind: "time-tracking" as const,
+        icon: Timer,
         onSelect: () => onTimeTrackingChange(provider.pluginId, provider.id),
       })),
     ];
@@ -322,6 +350,8 @@ function ActivityRailComponent({
     onPluginViewChange,
     onSourceControlProviderChange,
     pluginViews,
+    toolProviders,
+    codeProviders,
     sensitiveTools,
     preferences.order,
     sourceControlProviders,
@@ -420,7 +450,7 @@ function ActivityRailComponent({
               </button>
               {groupCollapsed
                 ? null
-                : groupItems.map((item) => (
+                : groupItems.map(({ icon: Icon, ...item }) => (
                     <button
                       className="icon-button activity-rail__button"
                       type="button"
@@ -443,27 +473,7 @@ function ActivityRailComponent({
                         setDragged(null);
                       }}
                     >
-                      {item.feature === "speech" ? (
-                        <Mic aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.feature === "credential-store" ? (
-                        <KeyRound aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.kind === "source-control" ? (
-                        <GitBranch aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.kind === "note-graph" ? (
-                        <Network aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.kind === "task-list" ? (
-                        <ListChecks aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.kind === "calendar" ? (
-                        <CalendarDays aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.kind === "reminders" ? (
-                        <Bell aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.kind === "time-tracking" ? (
-                        <Timer aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : item.kind === "note-comments" ? (
-                        <MessageSquare aria-hidden="true" size={19} strokeWidth={1.8} />
-                      ) : (
-                        <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
-                      )}
+                      <Icon aria-hidden="true" size={19} strokeWidth={1.8} />
                       {item.badgeCount ? (
                         <span
                           className={`activity-rail__badge${item.kind === "note-comments" ? " activity-rail__badge--muted" : ""}`}
@@ -489,10 +499,13 @@ function ActivityRailComponent({
             <div className="activity-rail__plugin-manager-panel">
               <h2>Organize plugins</h2>
               <ul>
-                {visibleItems.map((item, index) => (
+                {visibleItems.map(({ icon: Icon, ...item }, index) => (
                   <li key={item.key}>
                     <GripVertical aria-hidden="true" size={14} />
-                    <span>{item.title}</span>
+                    <span className="activity-rail__plugin-label">
+                      <Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+                      <span>{item.title}</span>
+                    </span>
                     <input
                       aria-label={`Group for ${item.title}`}
                       value={preferences.groups[item.key] ?? ""}
@@ -544,9 +557,12 @@ function ActivityRailComponent({
                 <summary>Hidden plugins ({hiddenItems.length})</summary>
                 {hiddenItems.length > 0 ? (
                   <ul>
-                    {hiddenItems.map((item) => (
+                    {hiddenItems.map(({ icon: Icon, ...item }) => (
                       <li key={item.key}>
-                        <span>{item.title}</span>
+                        <span className="activity-rail__plugin-label">
+                          <Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+                          <span>{item.title}</span>
+                        </span>
                         <button
                           type="button"
                           aria-label={`Show ${item.title}`}

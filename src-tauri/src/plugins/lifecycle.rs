@@ -315,6 +315,7 @@ impl PluginManager {
         clear_data: bool,
         clear_credentials: bool,
     ) -> AppResult<()> {
+        let _tool_access = self.write_native_tool_access()?;
         crate::sensitive::revoke_plugin(plugin_id)?;
         let _operation = self.begin_operation(plugin_id)?;
         let catalog = self.catalog_entry(plugin_id)?;
@@ -334,6 +335,7 @@ impl PluginManager {
                 });
         self.cancel_git_operations(plugin_id);
         self.inner.code_sessions.stop_plugin(Some(plugin_id))?;
+        self.inner.tool_sessions.stop_plugin(Some(plugin_id))?;
         self.remove_package(plugin_id)?;
         if clear_credentials {
             self.clear_credentials(plugin_id)?;
@@ -352,6 +354,9 @@ impl PluginManager {
                 state.storage.remove(plugin_id);
                 state
                     .code_tool_configurations
+                    .retain(|key, _| !key.starts_with(&format!("{plugin_id}:")));
+                state
+                    .tool_configurations
                     .retain(|key, _| !key.starts_with(&format!("{plugin_id}:")));
             }
             Ok(())

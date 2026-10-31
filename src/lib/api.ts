@@ -55,10 +55,32 @@ import type {
 import { systemPathForDisplay } from "./systemPath";
 import type { NoteCommentsDocument, NoteCommentsSnapshot } from "./noteComments";
 import type { CodeProtocolInvocation, CodeToolConfiguration, CodeToolEnvironment, CodeWorkspaceContext } from "./codeTools";
+import type { ToolConfiguration, ToolContext, ToolEnvironment, ToolStartRequest, ToolRun, ToolPoll } from "./projectTools";
+import type { PluginToolDocument } from "@denote/plugin-sdk";
 import type { CredentialRequest, CredentialResult } from "./credentials";
 import type { SpeechEngineStatus, SpeechProgress, SpeechTranscript } from "./speech";
 
 export const api = {
+  toolEnvironment: (pluginId: string, context: ToolContext) =>
+    invoke<ToolEnvironment>("tool_environment", { pluginId, context }),
+  chooseToolExecutable: (pluginId: string, kind: string) =>
+    invoke<string | null>("choose_tool_executable", { pluginId, kind }),
+  saveToolConfiguration: (pluginId: string, context: ToolContext, configuration: ToolConfiguration) =>
+    invoke<void>("save_tool_configuration", { pluginId, context, configuration }),
+  startToolSession: (pluginId: string, context: ToolContext, request: ToolStartRequest) =>
+    invoke<ToolRun>("start_tool_session", { pluginId, context, request }),
+  pollToolSession: (pluginId: string, context: ToolContext, runId: string) =>
+    invoke<ToolPoll>("poll_tool_session", { pluginId, context, runId }),
+  writeToolInput: (pluginId: string, context: ToolContext, runId: string, data: string) =>
+    invoke<void>("write_tool_input", { pluginId, context, runId, data }),
+  resizeToolTerminal: (pluginId: string, context: ToolContext, runId: string, rows: number, cols: number) =>
+    invoke<void>("resize_tool_terminal", { pluginId, context, runId, rows, cols }),
+  stopToolSession: (pluginId: string, runId: string) =>
+    invoke<void>("stop_tool_session", { pluginId, runId }),
+  stopToolSessions: (pluginId: string) =>
+    invoke<void>("stop_tool_sessions", { pluginId }),
+  validateToolDocuments: (pluginId: string, context: ToolContext, documents: PluginToolDocument[]) =>
+    invoke<string[]>("validate_tool_documents", { pluginId, context, documents }),
   speechEngineStatus: (pluginId: string, workspaceScope: string) =>
     invoke<SpeechEngineStatus>("speech_engine_status", { pluginId, workspaceScope }),
   installSpeechEngine: (pluginId: string, workspaceScope: string, operationId: string, approved: boolean, onProgress: (progress: SpeechProgress) => void) => {

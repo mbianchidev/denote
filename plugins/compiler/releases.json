@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "6c2bfeafc61ddb47aacafe48bd1e73c8cdc1a752",
+    "kind": "source",
+    "sourcePath": "plugins/compiler",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.13.0/denote.compiler-0.1.0.tgz",
+      "sha256": "439a9cfab97831fd3f124390c9e8d87c57384d118eca3c1e5e7865b8be33139c",
+      "sizeBytes": 19135
+    }
+  }
+]

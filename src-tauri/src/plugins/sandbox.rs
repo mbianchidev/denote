@@ -1,15 +1,13 @@
 use std::{
     collections::BTreeMap,
     fs,
-    io::{Read, Seek, SeekFrom},
+    io::Read,
     path::Path,
-    process::{Command, Stdio},
     sync::{Arc, LazyLock},
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
-use command_group::CommandGroup;
 use keyring_core::{Entry, api::CredentialStore};
 use reqwest::blocking::Client;
 use serde_json::Value;
@@ -332,6 +330,7 @@ impl PluginManager {
         plugin_id: &str,
         request: PluginProcessRequest,
         current_dir: Option<&Path>,
+        tool_access: std::sync::RwLockReadGuard<'_, ()>,
     ) -> AppResult<PluginProcessResult> {
         let permission = self.enabled_permission(plugin_id, "process")?;
         if !permission
@@ -346,7 +345,7 @@ impl PluginManager {
                 request.executable
             )));
         }
-        run_bounded_process(request, current_dir)
+        run_bounded_process(self, plugin_id, request, current_dir, tool_access)
     }
 
     pub(crate) fn installed_plugin(
@@ -441,10 +440,15 @@ pub(crate) fn platform_executable_is_absolute(platform: &str, executable: &str) 
 }
 
 pub(crate) fn run_bounded_process(
+    manager: &PluginManager,
+    plugin_id: &str,
     request: PluginProcessRequest,
     current_dir: Option<&Path>,
+    tool_access: std::sync::RwLockReadGuard<'_, ()>,
 ) -> AppResult<PluginProcessResult> {
-    const OUTPUT_LIMIT: u64 = 1024 * 1024;
+    use super::tooling::{ToolLaunch, ToolSession};
+    const OUTPUT_LIMIT: usize = 1024 * 1024;
+    let generation = manager.inner.tool_sessions.generation(plugin_id)?;
     if request.arguments.len() > 64
         || request
             .arguments
@@ -455,78 +459,75 @@ pub(crate) fn run_bounded_process(
             "Plugin process arguments exceed safety limits".to_string(),
         ));
     }
-    let mut stdout_file = tempfile::tempfile()?;
-    let mut stderr_file = tempfile::tempfile()?;
-    let mut command = Command::new(&request.executable);
-    if let Some(current_dir) = current_dir {
-        command.current_dir(current_dir);
-    }
-    command
-        .args(&request.arguments)
-        .stdin(Stdio::null())
-        .stdout(Stdio::from(stdout_file.try_clone()?))
-        .stderr(Stdio::from(stderr_file.try_clone()?));
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            command.pre_exec(|| {
-                rlimit::setrlimit(rlimit::Resource::FSIZE, OUTPUT_LIMIT, OUTPUT_LIMIT)
-                    .map_err(std::io::Error::other)
-            });
+    let fallback = std::env::current_dir()?;
+    let root = current_dir.unwrap_or(&fallback);
+    let owner = plugin_id.to_string();
+    let weak = Arc::downgrade(&manager.inner);
+    let session = ToolSession::spawn(ToolLaunch {
+        plugin_id,
+        kind: "process",
+        format: "process",
+        language: "text",
+        project_id: None,
+        executable: &request.executable,
+        arguments: &request.arguments,
+        vault_root: root,
+        project_root: root,
+        input: None,
+        rows: 24,
+        cols: 80,
+        timeout: Duration::from_secs(30),
+        current: Arc::new(move || {
+            weak.upgrade().is_some_and(|inner| {
+                PluginManager { inner }
+                    .authorize_runtime(&owner, Some("process"))
+                    .is_ok()
+            })
+        }),
+    })?;
+    manager
+        .inner
+        .tool_sessions
+        .insert(session.clone(), generation)?;
+    drop(tool_access);
+    let result = (|| {
+        let mut stdout = String::new();
+        let mut stderr = String::new();
+        loop {
+            let output = session.poll()?;
+            for event in output.events {
+                if event.stream == "stdout" {
+                    stdout.push_str(&event.data);
+                } else {
+                    stderr.push_str(&event.data);
+                }
+            }
+            if stdout.len() > OUTPUT_LIMIT || stderr.len() > OUTPUT_LIMIT {
+                return Err(AppError::Plugin(
+                    "Plugin process output exceeded 1 MiB.".into(),
+                ));
+            }
+            if output.status != "running" {
+                if let Some(error) = output.error {
+                    return Err(AppError::Plugin(error));
+                }
+                return Ok(PluginProcessResult {
+                    exit_code: output.exit_code.unwrap_or(-1),
+                    stdout,
+                    stderr,
+                });
+            }
+            thread::sleep(Duration::from_millis(20));
         }
+    })();
+    let cleanup = manager.inner.tool_sessions.stop_one(plugin_id, &session.id);
+    match (result, cleanup) {
+        (Ok(result), Ok(())) => Ok(result),
+        (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+        (Err(error), Err(cleanup)) => Err(AppError::Plugin(format!(
+            "{error}; cleanup failed: {cleanup}"
+        ))),
     }
-    let mut child = command
-        .group_spawn()
-        .map_err(|error| AppError::Plugin(format!("Unable to start process: {error}")))?;
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let (status, timed_out, output_exceeded) = loop {
-        let output_exceeded = stdout_file.metadata()?.len() > OUTPUT_LIMIT
-            || stderr_file.metadata()?.len() > OUTPUT_LIMIT;
-        let timed_out = Instant::now() >= deadline;
-        if output_exceeded || timed_out {
-            let _ = child.kill();
-            let status = child
-                .wait()
-                .map_err(|error| AppError::Plugin(format!("Unable to stop process: {error}")))?;
-            break (status, timed_out, output_exceeded);
-        }
-        if let Some(status) = child
-            .inner()
-            .try_wait()
-            .map_err(|error| AppError::Plugin(format!("Unable to wait for process: {error}")))?
-        {
-            let _ = child.kill();
-            let _ = child.wait();
-            break (status, false, false);
-        }
-        thread::sleep(Duration::from_millis(20));
-    };
-    if output_exceeded {
-        return Err(AppError::Plugin(
-            "Plugin process output exceeded 1 MiB".to_string(),
-        ));
-    }
-    if timed_out {
-        return Err(AppError::Plugin(
-            "Plugin process exceeded the 30 second timeout".to_string(),
-        ));
-    }
-    stdout_file.seek(SeekFrom::Start(0))?;
-    stderr_file.seek(SeekFrom::Start(0))?;
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    stdout_file
-        .take(OUTPUT_LIMIT + 1)
-        .read_to_end(&mut stdout)?;
-    stderr_file
-        .take(OUTPUT_LIMIT + 1)
-        .read_to_end(&mut stderr)?;
-    Ok(PluginProcessResult {
-        exit_code: status.code().unwrap_or(-1),
-        stdout: String::from_utf8_lossy(&stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&stderr).into_owned(),
-    })
 }
 
 pub(crate) fn enforce_storage_quota(

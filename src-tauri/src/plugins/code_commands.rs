@@ -328,6 +328,7 @@ pub async fn start_code_session(
 ) -> AppResult<StartedCodeSession> {
     let manager = state.inner().clone();
     background(move || {
+        let _tool_access = manager.read_native_tool_access()?;
         manager.authorize_runtime(&plugin_id, Some("code-intelligence"))?;
         let state = app.state::<db::AppState>();
         let _access = state.read_vault_access()?;

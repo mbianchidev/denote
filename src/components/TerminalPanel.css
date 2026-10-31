@@ -1,0 +1,47 @@
+.terminal-slot {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-slot[hidden],
+.terminal-panel [role="tabpanel"][hidden] {
+  display: none;
+}
+
+.terminal-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.terminal-tabs [aria-selected="true"] {
+  background: var(--panel-bg);
+  border-color: var(--focus);
+}
+
+.terminal-canvas {
+  position: relative;
+  height: 320px;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--app-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+}
+
+.terminal-canvas:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .terminal-canvas,
+  .terminal-tabs [aria-selected="true"] {
+    border-color: Highlight;
+    outline-color: Highlight;
+  }
+}

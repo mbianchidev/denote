@@ -107,6 +107,10 @@ import {
   type PluginWorkerConnectMessage,
 } from "./runtimeMessages";
 import { DiagramRendererHost } from "./diagramRenderers";
+import {
+  isToolParseRequest, isToolParseResultFor,
+  type PluginToolContribution, type PluginToolParseRequest, type PluginToolParseResult,
+} from "@denote/plugin-sdk";
 
 export type {
   PluginAuthoringContribution,
@@ -155,6 +159,7 @@ interface PendingRequest {
   reject: (error: Error) => void;
   timeout: number;
   expectedType:
+    | "tool-parse-result"
     | "authoring-result"
     | "code-result"
     | "command-result"
@@ -182,6 +187,8 @@ interface PendingHandshake {
 }
 
 interface Runtime {
+  toolProviders: Map<string, PluginToolContribution>;
+  stagedToolProviders: Map<string, PluginToolContribution>;
   sensitiveTools: Map<string, PluginSensitiveToolContribution>;
   stagedSensitiveTools: Map<string, PluginSensitiveToolContribution>;
   authoringProviders: Map<string, PluginAuthoringContribution>;
@@ -310,7 +317,39 @@ export class PluginWorkerRuntime {
     private readonly onClocksChanged: (providers: PluginClockContribution[]) => void = () => {},
     private readonly onAuthoringChanged: (providers: PluginAuthoringContribution[]) => void = () => {},
     private readonly onSensitiveToolsChanged: (tools: PluginSensitiveToolContribution[]) => void = () => {},
+    private readonly onToolProvidersChanged: (tools: PluginToolContribution[]) => void = () => {},
   ) {}
+
+  async parseToolOutput(
+    pluginId: string, providerId: string, request: PluginToolParseRequest, workspaceScope: string,
+  ): Promise<PluginToolParseResult> {
+    const runtime = this.requireRuntime(pluginId);
+    const provider = runtime.toolProviders.get(providerId);
+    if (runtime.phase !== "active" || !runtime.permissions.has("tooling") || !provider ||
+        provider.kind === "terminal" || !provider.formats.includes(request.format) ||
+        !isToolParseRequest(request) || workspaceScope !== this.workspaceIdentity || runtime.pending.size >= 64) {
+      throw new Error("Diagnostic parsing is unavailable or belongs to an inactive run.");
+    }
+    const requestId = crypto.randomUUID();
+    const pending = this.waitForRequest(runtime, requestId, 15_000, "tool-parse-result");
+    runtime.port.postMessage({ type: "parse-tool-output", providerId, requestId, request });
+    let result: unknown;
+    try { result = await pending; }
+    catch (error) {
+      await this.failRuntime(pluginId, new Error(`Tool diagnostic parsing failed: ${errorMessage(error)}`));
+      throw error;
+    }
+    if (workspaceScope !== this.workspaceIdentity || runtime.phase !== "active") {
+      throw new Error("Diagnostic parsing expired after a vault switch or plugin stop.");
+    }
+    if (!isToolParseResultFor(request, result) ||
+        (provider.kind !== "linter" && result.diagnostics.some((diagnostic) => diagnostic.fix))) {
+      const error = new Error("Tool diagnostics do not belong to their captured files, versions, or run.");
+      await this.failRuntime(pluginId, error);
+      throw error;
+    }
+    return result;
+  }
 
   async requestAuthoring(pluginId: string, providerId: string, request: PluginAuthoringRequest): Promise<PluginAuthoringResult> {
     const runtime = this.requireRuntime(pluginId);
@@ -1116,7 +1155,7 @@ export class PluginWorkerRuntime {
     if (projectIdentity(this.projectContext) !== projectIdentity(context)) {
       this.invalidateActionLeases();
     }
-    if (!sameProjectContext(this.projectContext, context)) this.stopNativeCodeTools();
+    if (!sameProjectContext(this.projectContext, context)) this.stopNativeCodeTools(false);
     const nextRepositories = cloneProjectRepositories(repositories);
     const event: PluginProjectContextChangeEvent = {
       previous: cloneProjectContext(this.projectContext),
@@ -1202,6 +1241,8 @@ export class PluginWorkerRuntime {
     });
     const channel = new MessageChannel();
     const runtime: Runtime = {
+      toolProviders: new Map(),
+      stagedToolProviders: new Map(),
       sensitiveTools: new Map(),
       stagedSensitiveTools: new Map(),
       authoringProviders: new Map(),
@@ -1321,6 +1362,9 @@ export class PluginWorkerRuntime {
       this.assertCurrent(pluginId, generation);
       runtime.activated = true;
       runtime.phase = "active";
+      for (const [id, provider] of runtime.stagedToolProviders) runtime.toolProviders.set(id, provider);
+      runtime.stagedToolProviders.clear();
+      this.publishToolProviders();
       for (const [id, tool] of runtime.stagedSensitiveTools) runtime.sensitiveTools.set(id, tool);
       runtime.stagedSensitiveTools.clear();
       for (const [id, provider] of runtime.stagedAuthoringProviders) runtime.authoringProviders.set(id, provider);
@@ -1423,6 +1467,29 @@ export class PluginWorkerRuntime {
       return;
     }
     switch (message.type) {
+      case "register-tool": {
+        const permission = message.kind === "terminal" ? "terminal" : "tooling";
+        if (!runtime.permissions.has(permission) || !["activating", "active"].includes(runtime.phase) ||
+            !message.id.startsWith(`${pluginId}.`) || runtime.toolProviders.size + runtime.stagedToolProviders.size > 0) {
+          void this.failRuntime(pluginId, new Error("Unauthorized tooling registration."));
+          return;
+        }
+        const { type: _type, ...registration } = message;
+        (runtime.activated ? runtime.toolProviders : runtime.stagedToolProviders).set(message.id, { ...registration, pluginId });
+        this.publishToolProviders();
+        return;
+      }
+      case "unregister-tool":
+        runtime.toolProviders.delete(message.id);
+        runtime.stagedToolProviders.delete(message.id);
+        this.publishToolProviders();
+        void api.stopToolSessions(pluginId).catch((error) => this.onError(pluginId, error));
+        return;
+      case "tool-parse-result":
+        if (!this.settle(runtime, message.requestId, "tool-parse-result", message.error, message.result)) {
+          this.protocolViolation(pluginId, "unexpected tool diagnostic result");
+        }
+        return;
       case "register-code-intelligence": {
         if (!runtime.permissions.has("code-intelligence") ||
             !["activating", "active"].includes(runtime.phase) ||
@@ -2426,6 +2493,7 @@ export class PluginWorkerRuntime {
     }
     runtime.handshakes.clear();
     this.runtimes.delete(pluginId);
+    this.publishToolProviders();
     this.publishCodeProviders();
     this.publishCommands();
     this.publishSidebarViews();
@@ -2465,6 +2533,11 @@ export class PluginWorkerRuntime {
       return;
     }
     runtime.phase = "stopping";
+    this.publishToolProviders();
+    if (runtime.permissions.has("tooling") || runtime.permissions.has("terminal") || runtime.permissions.has("process")) {
+      try { await api.stopToolSessions(pluginId); }
+      catch (error) { this.onError(pluginId, error); }
+    }
     this.publishAuthoring();
     if (runtime.permissions.has("speech") || runtime.permissions.has("credential-store")) {
       try { await api.stopSensitiveTools(pluginId); }
@@ -2512,6 +2585,11 @@ export class PluginWorkerRuntime {
       runtime.phase === "active" ? [...runtime.codeProviders.values()] : []));
   }
 
+  private publishToolProviders(): void {
+    this.onToolProvidersChanged([...this.runtimes.values()].flatMap((runtime) =>
+      runtime.phase === "active" ? [...runtime.toolProviders.values()] : []));
+  }
+
   private publishAuthoring(): void {
     this.onSensitiveToolsChanged([...this.runtimes.values()].flatMap((runtime) =>
       runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
@@ -2521,8 +2599,11 @@ export class PluginWorkerRuntime {
         ? [...runtime.authoringProviders.values()] : []));
   }
 
-  private stopNativeCodeTools(): void {
+  private stopNativeCodeTools(includeTerminals = true): void {
     for (const [pluginId, runtime] of this.runtimes) {
+      if (runtime.permissions.has("tooling") || (includeTerminals && runtime.permissions.has("terminal")) || runtime.permissions.has("process")) {
+        void api.stopToolSessions(pluginId).catch((error) => this.onError(pluginId, error));
+      }
       if (runtime.permissions.has("code-intelligence")) {
         void api.stopCodeSessions(pluginId).catch((error) => this.onError(pluginId, error));
       }

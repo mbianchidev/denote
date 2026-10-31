@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type {
+  PluginToolingProvider,
   PluginSensitiveToolRegistration,
   PluginAuthoringProvider,
   PluginCalendarProvider,
@@ -54,6 +55,8 @@ import {
 import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
 import { createGitCapability } from "./gitCapability";
 import {
+  isToolRegistration,
+  isToolParseResultFor,
   AUTHORING_FEATURES,
   SENSITIVE_TOOL_FEATURES,
   isPluginSensitiveToolRegistration,
@@ -113,6 +116,8 @@ const commandHandlers = new Map<string, PluginCommand["run"]>();
 const authoringProviders = new Map<string, PluginAuthoringProvider>();
 const sensitiveTools = new Map<string, PluginSensitiveToolRegistration>();
 const codeHandlers = new Map<string, PluginCodeProvider["run"]>();
+const toolHandlers = new Map<string, PluginToolingProvider["parse"]>();
+const registeredTools = new Set<string>();
 const codeAbortControllers = new Map<string, AbortController>();
 const sourceControlHandlers = new Map<
   string,
@@ -918,6 +923,39 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("tooling")) {
+    capabilities.tooling = {
+      register(provider) {
+        if (!isToolRegistration(provider) || typeof provider.parse !== "function") throw new Error("Invalid tooling provider.");
+        validateContributionId(provider.id, "tooling");
+        if (registeredTools.size) throw new Error("Only one tool may be registered per plugin.");
+        registeredTools.add(provider.id);
+        toolHandlers.set(provider.id, provider.parse);
+        send({ type: "register-tool", id: provider.id, title: provider.title, kind: provider.kind, formats: provider.formats });
+        return disposable(() => {
+          registeredTools.delete(provider.id);
+          toolHandlers.delete(provider.id);
+          send({ type: "unregister-tool", id: provider.id });
+        });
+      },
+    };
+  }
+  if (permissions.has("terminal")) {
+    capabilities.terminal = {
+      register(terminal) {
+        const registration = { ...terminal, kind: "terminal" as const, formats: [] };
+        if (!isToolRegistration(registration)) throw new Error("Invalid terminal registration.");
+        validateContributionId(terminal.id, "terminal");
+        if (registeredTools.size) throw new Error("Only one tool may be registered per plugin.");
+        registeredTools.add(terminal.id);
+        send({ type: "register-tool", ...registration });
+        return disposable(() => {
+          registeredTools.delete(terminal.id);
+          send({ type: "unregister-tool", id: terminal.id });
+        });
+      },
+    };
+  }
   if (permissions.has("secure-storage")) {
     capabilities.secureStorage = {
       get: (key) => hostRequest<string | null>("secret.get", key),
@@ -1055,6 +1093,8 @@ async function cleanup(): Promise<unknown[]> {
   automaticCommitSchedules.clear();
   emojiPickers.clear();
   structuredViewers.clear();
+  toolHandlers.clear();
+  registeredTools.clear();
   kanbanBoards.clear();
   noteGraphs.clear();
   taskLists.clear();
@@ -1064,6 +1104,18 @@ async function cleanup(): Promise<unknown[]> {
 }
 
 async function handleMessage(message: PluginHostMessage): Promise<void> {
+  if (message.type === "parse-tool-output") {
+    try {
+      const parse = toolHandlers.get(message.providerId);
+      if (!parse || cleaned) throw new Error("Tooling provider is no longer available.");
+      const result = await parse(message.request);
+      if (!isToolParseResultFor(message.request, result)) throw new Error("Tooling provider returned unbound or invalid diagnostics.");
+      send({ type: "tool-parse-result", requestId: message.requestId, result });
+    } catch (error) {
+      send({ type: "tool-parse-result", requestId: message.requestId, error: errorMessage(error) });
+    }
+    return;
+  }
   if (message.type === "cancel-code-request") {
     codeAbortControllers.get(message.requestId)?.abort();
     return;
