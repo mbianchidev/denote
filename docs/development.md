@@ -1405,9 +1405,14 @@ overrides. KaTeX 0.18.10 and lodash-es 4.18.1 remain fixed in historical Mermaid
 source pins, but leave the current graph with the Pele replacement.
 Deprecated KaTeX 0.18.11 accidentally
 included breaking 0.19 changes and is not a routine patch upgrade. Retain Vite
-8.3.5, archive-compatible Rolldown 1.2.15, and pako 3.0.2. Do not rewrite old
+8.3.5, archive-compatible Rolldown 1.2.15, and pako 3.0.3. The
+[pako patch](https://github.com/nodeca/pako/compare/3.0.2...3.0.3)
+preserves the canonical gzip fixture and all 20 current plugin archive sizes
+and SHA-256 digests with the existing `legacyHash` and portable-header settings.
+Do not rewrite old
 ledger entries or repin old versions to fix already-published remediation.
-The host-only compatible updates are autocomplete 6.20.4, @pierre/diffs 1.6.1,
+The host-only compatible updates are autocomplete 6.20.4, @mdxeditor/editor
+4.3.4, @pierre/diffs 1.6.2, lucide-react 1.63.0, mdast-util-to-markdown 2.2.1,
 and jsdom 30.1.3; no Tauri-family upgrade is implied.
 
 After pinning, inspect `npm ls pele mdast-util-from-markdown dompurify
@@ -1680,6 +1685,11 @@ versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-31**.
+Rechecked for the frontend dependency merge and CI repair on the same date.
+Official registry records, release notes, the linked upstream backport and
+D-Bus migration requests, and RustSec sources below confirm the same seven
+compatible/current release pairs. No compatible published replacement removes
+a local backport; all reviewed sources and runtime pins remain unchanged.
 Rechecked again for the Phase 4 requirement audit, UI evidence, and distinct
 sidebar icons on the same date. The seven compatible/current release pairs and
 the linked upstream and RustSec outcomes below remain unchanged; no compatible
