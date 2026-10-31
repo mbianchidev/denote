@@ -87,6 +87,10 @@ import {
   isPluginClockRegistration,
 } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "./codeIntelligence";
+import {
+  isToolRegistration, isToolParseRequest, isToolParseResult,
+  type PluginToolRegistration, type PluginToolParseRequest, type PluginToolParseResult,
+} from "@denote/plugin-sdk";
 export type { PluginCodeContribution } from "./codeIntelligence";
 export type { PluginEmojiPickerContribution } from "./emojiPickers";
 import {
@@ -204,6 +208,7 @@ export interface PluginWorkerConnectMessage {
 }
 
 export type PluginHostMessage =
+  | { type: "parse-tool-output"; providerId: string; requestId: string; request: PluginToolParseRequest }
   | { type: "authoring-request"; providerId: string; request: PluginAuthoringRequest; requestId: string }
   | { type: "clock-request"; providerId: string; request: PluginClockRequest; requestId: string }
   | { type: "time-tracking-request"; providerId: string; request: PluginTimeTrackingRequest; requestId: string }
@@ -307,6 +312,9 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
+  | ({ type: "register-tool" } & PluginToolRegistration)
+  | { type: "unregister-tool"; id: string }
+  | { type: "tool-parse-result"; requestId: string; result?: PluginToolParseResult; error?: string }
   | ({ type: "register-sensitive-tool" } & PluginSensitiveToolRegistration)
   | { type: "unregister-sensitive-tool"; id: string }
   | ({ type: "register-authoring" } & PluginAuthoringRegistration)
@@ -507,6 +515,14 @@ export function isPluginRuntimeMessage(
     return false;
   }
   switch (value.type) {
+    case "register-tool":
+      return isToolRegistration(value);
+    case "unregister-tool":
+      return typeof value.id === "string";
+    case "tool-parse-result":
+      return typeof value.requestId === "string" &&
+        ((typeof value.error === "string" && value.result === undefined) ||
+          (value.error === undefined && isToolParseResult(value.result)));
     case "register-sensitive-tool":
       return isPluginSensitiveToolRegistration(value);
     case "unregister-sensitive-tool":
@@ -727,6 +743,9 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
     return false;
   }
   switch (value.type) {
+    case "parse-tool-output":
+      return typeof value.providerId === "string" && typeof value.requestId === "string" &&
+        isToolParseRequest(value.request);
     case "authoring-request":
       return typeof value.providerId === "string" && typeof value.requestId === "string" &&
         isPluginAuthoringRequest(value.request);

@@ -10,6 +10,8 @@ mod package;
 mod sandbox;
 mod settings;
 mod time_tracking;
+mod tooling;
+mod tooling_commands;
 mod types;
 
 #[cfg(test)]
@@ -27,6 +29,7 @@ pub use code_commands::*;
 pub use commands::*;
 pub use git::tools::ToolStatus;
 pub use time_tracking::*;
+pub use tooling_commands::*;
 pub use types::*;
 
 use catalog::{validate_bundles, validate_catalog};
@@ -42,7 +45,7 @@ use std::{
     fs,
     io::Write,
     path::PathBuf,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard, RwLock},
 };
 
 use atomic_write_file::AtomicWriteFile;
@@ -69,6 +72,8 @@ struct PluginManagerInner {
     initialization_error: Mutex<Option<String>>,
     git_operations: GitOperationRegistry,
     code_sessions: code_intelligence::CodeSessionRegistry,
+    tool_sessions: tooling::ToolSessionRegistry,
+    native_tool_access: RwLock<()>,
     /// Destinations of clones that failed, addressable only by opaque token.
     clone_cleanups: CloneCleanupRegistry,
     clone_destinations: CloneDestinationRegistry,
@@ -84,8 +89,16 @@ struct DevelopmentPluginPackage {
 
 impl Drop for PluginManagerInner {
     fn drop(&mut self) {
+        if let Err(error) = self.tool_sessions.stop_plugin(None) {
+            eprintln!("External-tool final shutdown failed: {error}");
+        }
+        if let Err(error) = self.code_sessions.stop_plugin(None) {
+            eprintln!("Code-tool final shutdown failed: {error}");
+        }
         if let Some(lock) = &self._process_lock {
-            let _ = lock.unlock();
+            if let Err(error) = lock.unlock() {
+                eprintln!("Unable to release plugin manager lock: {error}");
+            }
         }
     }
 }
@@ -161,6 +174,8 @@ impl PluginManager {
                                 initialization_error: Mutex::new(Some(error.to_string())),
                                 git_operations: GitOperationRegistry::default(),
                                 code_sessions: code_intelligence::CodeSessionRegistry::default(),
+                                tool_sessions: tooling::ToolSessionRegistry::default(),
+                                native_tool_access: RwLock::new(()),
                                 clone_cleanups: CloneCleanupRegistry::default(),
                                 clone_destinations: CloneDestinationRegistry::default(),
                                 _process_lock: None,
@@ -286,6 +301,8 @@ impl PluginManager {
                 initialization_error: Mutex::new(None),
                 git_operations: GitOperationRegistry::default(),
                 code_sessions: code_intelligence::CodeSessionRegistry::default(),
+                tool_sessions: tooling::ToolSessionRegistry::default(),
+                native_tool_access: RwLock::new(()),
                 clone_cleanups: CloneCleanupRegistry::default(),
                 clone_destinations: CloneDestinationRegistry::default(),
                 _process_lock: Some(process_lock),

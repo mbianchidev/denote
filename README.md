@@ -107,6 +107,11 @@ approval; it is not included in the desktop installer or enabled by default.
 - **[Code intelligence](docs/user-guide/docs/Optional%20plugins.md#code-intelligence):**
   approve local language servers and optional debuggers for Rust, Go, Python,
   Java, C/C++, and JavaScript/TypeScript.
+- **[Linter](docs/user-guide/docs/Optional%20plugins.md#linter) and
+  [Build and compiler](docs/user-guide/docs/Optional%20plugins.md#build-and-compiler):**
+  approved local commands, versioned diagnostics, streamed output and previewed fixes.
+- **[Ghostty terminal](docs/user-guide/docs/Optional%20plugins.md#ghostty-terminal):**
+  approved shell tabs on macOS/Linux, with explicit platform limitations on Windows.
 - **Writing and planning:** Emoji picker, Calendar and daily notes, Advanced
   task lists, Reminders, Time tracking, and Note graph. Calendar includes daily, created, and
   last-updated views; daily-note creation never overwrites existing files.

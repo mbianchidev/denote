@@ -1058,6 +1058,27 @@ Native disclosure sections contain setup and logs without traps or custom
 dialogs. No-server, disabled, busy, stale, crash, unsupported and encrypted states
 keep ordinary source editing available.
 
+### Optional linters, builds and terminals
+
+Linter and Build and compiler reuse the compact code-tool sidebar, shared
+buttons, native language/scope selectors and disclosed executable setup.
+**Save and approve** is separate from execution. Written run IDs, exit status,
+separate output streams and error text remain visible. Problems expose severity,
+rule, path and position through named buttons; underlines/gutters/hover are
+supplementary. Fix previews show Before/After and a separately explicit
+**Apply fix**. Unsaved builds offer **Save all and build** or **Run on saved
+files**, never an implicit save.
+
+Ghostty terminal uses host-owned, keyboard-operable tabs within the same
+workbench sidebar. Tab arrows/Home/End change tabs; ordinary Tab leaves terminal
+input, and **Send Tab** is the explicit shell-completion alternative. The input
+has a visible focus ring and a named native textarea. Search, Copy, Paste,
+project-relative file navigation and detected links have ordinary controls;
+multiline/control-character paste is reviewed. A bounded text alternative
+supplements the canvas. Running-tab close, vault switch, shell reconfiguration
+and quit confirmations name the termination consequence. Unsupported platforms,
+startup failures, output limits and failed exits remain written states.
+
 ### Source Outline
 
 Project source uses the available pane width rather than the centered writing

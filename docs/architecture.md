@@ -943,8 +943,8 @@ outstanding leases. Existing
 bounded process execution resolves the captured ID through native SQLite,
 revalidates that it still belongs to the active vault and names a safe available
 directory, and uses that directory as `cwd`. Persistent terminal sessions are
-not part of this bounded process API. The separate additive `code-intelligence`
-surface owns standing LSP/DAP sessions.
+not part of this bounded process API. Separate additive `code-intelligence`,
+`tooling`, and `terminal` surfaces own their constrained session contracts.
 
 ### Code intelligence
 
@@ -999,6 +999,56 @@ Baseline syntax highlighting is core and never waits for plugin startup. A
 future specialized grammar contribution would require a separately approved,
 typed, bundled host contract with deterministic disposal and fallback; API
 version 1 does not expose editor grammars or runtime grammar downloads.
+
+### External tooling and terminal lifetime
+
+Linter and Compiler are independent downloadable packages using the common
+`plugin-sdk/tooling` contract. Their isolated workers parse bounded literal
+output only. The host owns configuration, executable approval/hashing,
+source-version snapshots, streaming, cancellation, diagnostics, safe fix
+previews and editor transactions. Neither package imports the other or receives
+an absolute vault root, native process handle, encryption key, or DOM object.
+Unix, MSVC, ESLint JSON and Cargo JSON parsers share the SDK's data contracts.
+
+`plugins/tooling_commands.rs` binds each run to plugin, vault, project, language,
+configuration and native execution ID. Source hashes are captured before spawn
+and revalidated before using diagnostics. `ToolingHost` additionally binds stdin
+linting and open-file results to exact in-memory versions. Edits and scope
+changes cancel pending work; clean runs replace, rather than append to, earlier
+problems. Source markers merge with LSP diagnostics in one CodeMirror lint
+extension. Build output keeps stdout/stderr and the real exit status. Unsaved
+builds require explicit saved-files consent or the core save/conflict barrier.
+Fixes are proposals, previewed and checked again before an undoable Source edit.
+
+`plugins/tooling.rs` owns native process groups and Unix PTYs. It drains both
+streams, terminates descendants retaining output descriptors, reaps children,
+and joins I/O workers. PTY shutdown enumerates the shell's session so background
+interactive job groups are included; the session leader remains unreaped until
+cleanup to avoid recycling its PID. Queues and output are bounded and failures
+remain observable. Legacy `process.run` now uses this same lifecycle registry
+while retaining its 30-second/1-MiB limits and finite-result contract.
+
+One native startup reader/writer gate orders startup before vault access.
+Disable holds exclusive startup access through native cleanup and state/package
+removal, preventing late starts. Vault switches and encryption transitions
+quiesce tooling before their exclusive vault operation. The LSP/DAP transport
+shares that startup gate. All external processes are refused when an encryption
+manifest exists, including for unlocked encrypted vaults. No plaintext tooling
+mirror is created.
+
+Ghostty terminal is a declarative worker registration backed by a lazy trusted
+host adapter. Ghostty's MIT-licensed VT engine ships as a local WASM asset through
+`ghostty-web` 0.4.0, not as a downloaded shell or a plugin-provided renderer.
+Build tooling verifies that the embedded WASM exactly matches the package asset
+before externalizing it, preserving the JavaScript chunk budget and offline CSP.
+Both upstream license notices ship with the application.
+macOS/Linux provide PTYs; Windows reports its current shutdown-verification
+limitation without launching. Terminal tabs keep their own captured project
+when focus moves, but removed/moved projects invalidate affected sessions.
+Vault changes, disable and shutdown stop all sessions. The host owns keyboard
+escape from terminal focus, reviewed paste, bounded text/search alternatives,
+file links and external-link approval. Renderer resources survive sidebar
+changes and are disposed with their tabs.
 
 ### Structured source viewers
 

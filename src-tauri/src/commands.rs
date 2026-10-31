@@ -256,6 +256,7 @@ pub fn resolve_app_link(state: State<'_, AppState>, uri: String) -> AppResult<Ap
 pub async fn import_app_link_vault(
     app: AppHandle,
     state: State<'_, AppState>,
+    plugins: State<'_, crate::plugins::PluginManager>,
     uri: String,
 ) -> AppResult<Option<ImportedAppLink>> {
     let target = app_links::linked_file(&uri)?;
@@ -268,6 +269,7 @@ pub async fn import_app_link_vault(
         return Ok(None);
     };
     let (root, path) = app_links::vault_file_target(&selected, &target)?;
+    let _tools = plugins.quiesce_native_tools()?;
     let _vault_access = state.write_vault_access()?;
     seal_active_vault_before_switch(&state)?;
     let mut snapshot = vault::open_vault(&state.db_path, &root.to_string_lossy())?;
@@ -277,7 +279,12 @@ pub async fn import_app_link_vault(
 }
 
 #[tauri::command]
-pub fn open_known_vault(state: State<'_, AppState>, vault_id: i64) -> AppResult<WorkspaceSnapshot> {
+pub fn open_known_vault(
+    state: State<'_, AppState>,
+    plugins: State<'_, crate::plugins::PluginManager>,
+    vault_id: i64,
+) -> AppResult<WorkspaceSnapshot> {
+    let _tools = plugins.quiesce_native_tools()?;
     let _vault_access = state.write_vault_access()?;
     let connection = db::open(&state.db_path)?;
     let path = db::known_vault_path(&connection, vault_id)?
@@ -387,11 +394,13 @@ fn metadata_is_link(metadata: &fs::Metadata) -> bool {
 pub async fn choose_vault(
     app: AppHandle,
     state: State<'_, AppState>,
+    plugins: State<'_, crate::plugins::PluginManager>,
 ) -> AppResult<Option<WorkspaceSnapshot>> {
     let options = SelectionOptions::new("Choose a Denote vault");
     let Some(path) = dialogs::select(&app, SelectionKind::Folder, options).await? else {
         return Ok(None);
     };
+    let _tools = plugins.quiesce_native_tools()?;
     let _vault_access = state.write_vault_access()?;
     seal_active_vault_before_switch(&state)?;
     let mut snapshot = vault::open_vault(&state.db_path, &path.to_string_lossy())?;
@@ -462,8 +471,10 @@ fn finish_pending_encryption(
 #[tauri::command]
 pub fn enable_vault_encryption(
     state: State<'_, AppState>,
+    plugins: State<'_, crate::plugins::PluginManager>,
     password: String,
 ) -> AppResult<EncryptionSetupResult> {
+    let _tools = plugins.quiesce_native_tools()?;
     let _vault_access = state.write_vault_access()?;
     let root = state.active_vault()?;
     let control_lock = vault::acquire_vault_control_lock(&root)?;
@@ -545,7 +556,11 @@ pub fn unlock_vault_with_recovery_code(
 }
 
 #[tauri::command]
-pub fn lock_vault(state: State<'_, AppState>) -> AppResult<WorkspaceSnapshot> {
+pub fn lock_vault(
+    state: State<'_, AppState>,
+    plugins: State<'_, crate::plugins::PluginManager>,
+) -> AppResult<WorkspaceSnapshot> {
+    let _tools = plugins.quiesce_native_tools()?;
     let _vault_access = state.write_vault_access()?;
     let root = state.active_vault()?;
     if let Some(manifest) = crypto::load_manifest(&root)?
