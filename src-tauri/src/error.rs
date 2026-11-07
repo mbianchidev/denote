@@ -21,6 +21,10 @@ pub enum AppError {
     Conflict(String),
     #[error("Vault is locked")]
     Locked,
+    #[error("Denote is locked. Unlock the app first.")]
+    AppLocked,
+    #[error("App authentication failed: {0}")]
+    Authentication(String),
     #[error("Encryption error: {0}")]
     Crypto(String),
     #[error("Clipboard operation failed: {0}")]

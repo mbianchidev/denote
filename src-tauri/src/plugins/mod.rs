@@ -127,6 +127,10 @@ impl Drop for PluginOperation {
 }
 
 impl PluginManager {
+    pub(crate) fn clear_clipboard_files(&self) -> AppResult<()> {
+        crate::vault::clear_clipboard_files(&self.inner.app_cache_dir)
+    }
+
     #[cfg(test)]
     pub fn new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> Self {
         Self::with_resource_dir(

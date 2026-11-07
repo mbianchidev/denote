@@ -1,5 +1,5 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { DocumentBatch, FileNode, NoteStats, WorkspaceSnapshot } from "../src/types";
+import type { AppLockStatus, DocumentBatch, FileNode, NoteStats, WorkspaceSnapshot } from "../src/types";
 
 interface BenchmarkState {
   inputLatencies: number[];
@@ -7,12 +7,17 @@ interface BenchmarkState {
   unexpectedCommands: string[];
   documents: Record<string, string>;
   indexReads: string[][];
+  appLock: AppLockStatus;
+  vaultReads: number;
+  noteReads: number;
+  deviceAttempts: number;
 }
 
 declare global {
   interface Window {
     __DENOTE_BENCHMARK__: BenchmarkState;
     __DENOTE_LARGE_INDEX__?: boolean;
+    __DENOTE_APP_LOCK__?: AppLockStatus;
   }
 }
 
@@ -68,6 +73,14 @@ const state: BenchmarkState = {
   unexpectedCommands: [],
   documents,
   indexReads: [],
+  appLock: window.__DENOTE_APP_LOCK__ ?? {
+    enabled: false, locked: false, passwordEnabled: false, deviceAuthenticationEnabled: false,
+    inactivityMinutes: null,
+    deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+  },
+  vaultReads: 0,
+  noteReads: 0,
+  deviceAttempts: 0,
 };
 window.__DENOTE_BENCHMARK__ = state;
 const node = (path: string): FileNode => ({
@@ -136,7 +149,25 @@ function argument(payload: unknown, name: string): string {
 
 mockWindows("main");
 mockIPC((command, payload) => {
+  if (state.appLock.locked && !command.startsWith("plugin:") &&
+    !["get_app_lock_status", "unlock_app_with_password", "unlock_app_with_device", "complete_exit", "recover_plugin_transactions"].includes(command)) {
+    state.unexpectedCommands.push(command);
+    throw new Error("Denote is locked.");
+  }
   switch (command) {
+    case "get_app_lock_status":
+      return structuredClone(state.appLock);
+    case "unlock_app_with_password":
+      if (argument(payload, "password") !== "synthetic app password") throw new Error("Incorrect app password.");
+      state.appLock.locked = false;
+      return structuredClone(state.appLock);
+    case "unlock_app_with_device":
+      if (++state.deviceAttempts === 1) throw new Error("Device authentication was cancelled.");
+      state.appLock.locked = false;
+      return structuredClone(state.appLock);
+    case "lock_app":
+      state.appLock.locked = true;
+      return structuredClone(state.appLock);
     case "get_runtime_info":
       return {
         operatingSystem: "linux",
@@ -146,6 +177,8 @@ mockIPC((command, payload) => {
         updaterConfigured: false,
       };
     case "get_last_vault":
+      state.vaultReads += 1;
+      return snapshot;
     case "refresh_vault":
       return snapshot;
     case "list_plugins":
@@ -187,8 +220,10 @@ mockIPC((command, payload) => {
     case "recover_plugin_transactions":
     case "save_tab_session":
     case "prepare_exit":
+    case "complete_exit":
       return null;
     case "read_note": {
+      state.noteReads += 1;
       const path = argument(payload, "path");
       if (!(path in state.documents)) throw new Error(`Unknown synthetic document ${path}`);
       return {

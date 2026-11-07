@@ -127,6 +127,10 @@ const SEED_FILES: &[(&str, &[u8])] = &[
         include_bytes!("../../docs/user-guide/docs/Vault encryption.md"),
     ),
     (
+        "docs/App lock.md",
+        include_bytes!("../../docs/user-guide/docs/App lock.md"),
+    ),
+    (
         "docs/Editor display.md",
         include_bytes!("../../docs/user-guide/docs/Editor display.md"),
     ),

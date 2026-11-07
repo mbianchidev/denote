@@ -72,6 +72,7 @@ import {
   type UpdateUiState,
 } from "./components/AboutDialog";
 import { ActionDialog } from "./components/ActionDialog";
+import { AppLockBoundary, type AppLockActions } from "./components/AppLockBoundary";
 import {
   CommandPalette,
   type CommandPaletteCommand,
@@ -154,6 +155,7 @@ import { VaultUnlockScreen } from "./components/VaultUnlockScreen";
 import { VaultSwitcherDialog } from "./components/VaultSwitcherDialog";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
+import { useAppInactivityLock } from "./lib/useAppInactivityLock";
 import { systemPathForDisplay } from "./lib/systemPath";
 import {
   appErrorsReducer,
@@ -903,6 +905,10 @@ function sourceControlConfirmation(
 }
 
 function App() {
+  return <AppLockBoundary>{(appLock) => <Workspace appLock={appLock} />}</AppLockBoundary>;
+}
+
+function Workspace({ appLock }: { appLock: AppLockActions }) {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     getThemePreference(),
   );
@@ -1134,6 +1140,7 @@ function App() {
   );
   workspaceVaultPathRef.current = workspace?.vaultPath ?? null;
   const closingWindow = useRef(false);
+  const appLockOperation = useRef<Promise<void> | null>(null);
   const workspaceLockedRef = useRef(false);
   const modalOpenRef = useRef(false);
   const commandPaletteCommandsRef = useRef<CommandPaletteCommand[]>([]);
@@ -3902,6 +3909,36 @@ function App() {
     }
   }, [applyEncryptionSnapshot, setWorkspaceLock]);
 
+  const lockApplication = useCallback((automatic = false): Promise<void> => {
+    if (appLockOperation.current) return appLockOperation.current;
+    const operation = (async () => {
+      try {
+        if (!automatic && !await confirmTerminalShutdown("Lock app")) {
+          throw new Error("App locking was cancelled.");
+        }
+        await Promise.all([...criticalOperations.current]);
+        if (!await beginWorkspaceOperationRef.current()) {
+          throw new Error("App locking was cancelled because a file could not be saved.");
+        }
+        await shutdownPlugins();
+        await appLock.lock();
+      } finally {
+        setWorkspaceLock(false);
+      }
+    })();
+    appLockOperation.current = operation;
+    const settled = () => {
+      if (appLockOperation.current === operation) appLockOperation.current = null;
+    };
+    void operation.then(settled, settled);
+    return operation;
+  }, [appLock.lock, confirmTerminalShutdown, setWorkspaceLock, shutdownPlugins]);
+  useAppInactivityLock(
+    appLock.status.enabled ? appLock.status.inactivityMinutes : null,
+    () => lockApplication(true),
+    showError,
+  );
+
   const unlockEncryptedVault = useCallback(
     async (credential: string, recovery: boolean) => {
       const snapshot = recovery
@@ -4172,7 +4209,10 @@ function App() {
           continue;
         }
         if (await flushAllTabsRef.current()) {
-          await persistTabSessionRef.current();
+          if (!await persistTabSessionRef.current()) {
+            setWorkspaceLock(false);
+            return false;
+          }
           await Promise.all([...preferenceWrites.current]);
           if (
             attachmentUploads.current.size > 0 ||
@@ -8872,9 +8912,7 @@ function App() {
         event.stopPropagation();
         if (
           !workspaceLockedRef.current &&
-          !modalOpen &&
-          workspace !== null &&
-          (!workspace.encryption.enabled || workspace.encryption.unlocked)
+          !modalOpen
         ) {
           setEditorSettingsOpen(true);
         }
@@ -9756,10 +9794,10 @@ function App() {
     {
       id: "editor.settings",
       title: "Open settings",
-      description: "Change font size, guides, and session restore.",
+      description: "Change appearance, editor guides, plugins, and app lock.",
       category: "Editor",
       shortcut: `${commandKey},`,
-      disabled: !workspaceReady,
+      disabled: workspaceLocked || initializing,
       run: () => setEditorSettingsOpen(true),
     },
     {
@@ -9768,6 +9806,14 @@ function App() {
       description: "Show build, platform, support, and update information.",
       category: "Application",
       run: () => setAboutOpen(true),
+    },
+    {
+      id: "app.lock",
+      title: "Lock app",
+      description: "Save files, stop native tools, and hide the entire workspace.",
+      category: "Application",
+      disabled: !appLock.status.enabled || workspaceLocked,
+      run: () => lockApplication(),
     },
     {
       id: "app.report-bug",
@@ -10196,6 +10242,62 @@ function App() {
     if (activeTimeTracking && !activeTimeTrackingContribution && !activeClockContribution) showSidebarView("files");
   }, [activeTimeTracking, activeTimeTrackingContribution, activeClockContribution, showSidebarView]);
 
+  const editorSettingsDialog = (
+    <EditorSettingsDialog
+      open={editorSettingsOpen}
+      disabled={workspaceLocked}
+      appLock={{ ...appLock, lock: () => lockApplication(), disabled: workspaceLocked }}
+      settings={editorDisplaySettings}
+      themePreference={themePreference}
+      restoreTabs={workspace?.restoreTabs ?? false}
+      restoreTabsAvailable={workspace !== null}
+      externalDomains={externalDomainPolicy.domains}
+      allowAllExternalDomains={externalDomainPolicy.allowAll}
+      plugins={pluginController.plugins}
+      pluginBundles={pluginController.bundles}
+      pluginDevelopmentSupported={pluginController.developmentSupported}
+      pluginDevelopmentLoading={pluginController.developmentLoading}
+      activeProject={activeProject}
+      pluginsLoading={pluginController.loading}
+      busyPluginIds={pluginController.busyPluginIds}
+      onChange={updateEditorDisplaySettings}
+      onThemePreferenceChange={updateThemePreference}
+      onRestoreTabsChange={updateRestoreTabs}
+      onRemoveExternalDomain={removeExternalDomain}
+      onClearExternalDomains={clearExternalDomains}
+      onEnablePlugin={pluginController.enable}
+      onDisablePlugin={pluginController.disable}
+      onDisableAllPlugins={pluginController.disableAll}
+      onUpdateAllPlugins={pluginController.updateAll}
+      pluginAutoUpdateEnabled={pluginController.autoUpdateEnabled}
+      onSetPluginAutoUpdateEnabled={pluginController.setAutoUpdateEnabled}
+      onLoadDevelopmentPlugin={pluginController.loadDevelopmentPlugin}
+      onClearPluginData={pluginController.clearData}
+      onClearPluginCredentials={pluginController.clearCredentials}
+      onUpdatePluginSettings={pluginController.updateSettings}
+      onImportPluginSettings={pluginController.importSettings}
+      onInspectPluginTools={api.getPluginToolStatuses}
+      gitSigningActions={{
+        contextKey: `${workspace?.vaultPath ?? ""}:${activeProject?.id ?? ""}`,
+        onInspect: () => api.getGitSigningStatus(workspace?.vaultPath ?? null, activeProject?.id ?? null),
+        onSave: async (credentialId, passphrase) => {
+          const status = await api.saveGitSigningPassphrase(
+            credentialId, passphrase, workspace?.vaultPath ?? null, activeProject?.id ?? null,
+          );
+          void pluginController.refresh().catch(showError);
+          return status;
+        },
+        onDelete: async (credentialId) => {
+          await api.deleteGitSigningPassphrase(credentialId);
+          void pluginController.refresh().catch(showError);
+        },
+      }}
+      onPickPluginExecutable={api.choosePluginExecutable}
+      onPluginError={showError}
+      onClose={() => setEditorSettingsOpen(false)}
+    />
+  );
+
   if (!workspace) {
     return (
       <>
@@ -10215,6 +10317,7 @@ function App() {
         {vaultSwitcherDialog}
         {commandPalette}
         {aboutDialog}
+        {editorSettingsDialog}
       </>
     );
   }
@@ -10235,6 +10338,7 @@ function App() {
           theme={theme}
           onThemeToggle={toggleTheme}
           onShowVaults={() => setVaultSwitcherOpen(true)}
+          onSettings={() => setEditorSettingsOpen(true)}
           onUnlockWithPassword={(password) =>
             unlockEncryptedVault(password, false)
           }
@@ -10245,6 +10349,7 @@ function App() {
         {vaultSwitcherDialog}
         {commandPalette}
         {aboutDialog}
+        {editorSettingsDialog}
       </>
     );
   }
@@ -10839,6 +10944,8 @@ function App() {
         onReminderChange={showReminder}
         onTimeTrackingChange={showTimeTracking}
         onAbout={() => setAboutOpen(true)}
+        onLockApp={appLock.status.enabled ? () => void lockApplication().catch(showError) : undefined}
+        lockAppDisabled={workspaceLocked}
         onThemeToggle={toggleTheme}
       />
       <CodeTooltips host={codeHost} />
@@ -11846,57 +11953,7 @@ function App() {
         onPreview={previewReplace}
         onApply={applyReplace}
       />
-      <EditorSettingsDialog
-        open={editorSettingsOpen}
-        disabled={workspaceLocked}
-        settings={editorDisplaySettings}
-        themePreference={themePreference}
-        restoreTabs={workspace.restoreTabs}
-        externalDomains={externalDomainPolicy.domains}
-        allowAllExternalDomains={externalDomainPolicy.allowAll}
-        plugins={pluginController.plugins}
-        pluginBundles={pluginController.bundles}
-        pluginDevelopmentSupported={pluginController.developmentSupported}
-        pluginDevelopmentLoading={pluginController.developmentLoading}
-        activeProject={activeProject}
-        pluginsLoading={pluginController.loading}
-        busyPluginIds={pluginController.busyPluginIds}
-        onChange={updateEditorDisplaySettings}
-        onThemePreferenceChange={updateThemePreference}
-        onRestoreTabsChange={updateRestoreTabs}
-        onRemoveExternalDomain={removeExternalDomain}
-        onClearExternalDomains={clearExternalDomains}
-        onEnablePlugin={pluginController.enable}
-        onDisablePlugin={pluginController.disable}
-        onDisableAllPlugins={pluginController.disableAll}
-        onUpdateAllPlugins={pluginController.updateAll}
-        pluginAutoUpdateEnabled={pluginController.autoUpdateEnabled}
-        onSetPluginAutoUpdateEnabled={pluginController.setAutoUpdateEnabled}
-        onLoadDevelopmentPlugin={pluginController.loadDevelopmentPlugin}
-        onClearPluginData={pluginController.clearData}
-        onClearPluginCredentials={pluginController.clearCredentials}
-        onUpdatePluginSettings={pluginController.updateSettings}
-        onImportPluginSettings={pluginController.importSettings}
-        onInspectPluginTools={api.getPluginToolStatuses}
-        gitSigningActions={{
-          contextKey: `${workspace?.vaultPath ?? ""}:${activeProject?.id ?? ""}`,
-          onInspect: () => api.getGitSigningStatus(workspace?.vaultPath ?? null, activeProject?.id ?? null),
-          onSave: async (credentialId, passphrase) => {
-            const status = await api.saveGitSigningPassphrase(
-              credentialId, passphrase, workspace?.vaultPath ?? null, activeProject?.id ?? null,
-            );
-            void pluginController.refresh().catch(showError);
-            return status;
-          },
-          onDelete: async (credentialId) => {
-            await api.deleteGitSigningPassphrase(credentialId);
-            void pluginController.refresh().catch(showError);
-          },
-        }}
-        onPickPluginExecutable={api.choosePluginExecutable}
-        onPluginError={showError}
-        onClose={() => setEditorSettingsOpen(false)}
-      />
+      {editorSettingsDialog}
       <ExternalLinkDialog
         open={pendingExternalLink !== null}
         kind={pendingExternalLink?.kind ?? "domain"}

@@ -1079,6 +1079,7 @@ dependencies = [
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",
+ "objc2-local-authentication",
  "portable-pty",
  "quick-xml 0.42.0",
  "reqwest",
@@ -1088,6 +1089,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "subtle",
  "sysinfo",
  "tar",
  "tauri",
@@ -1099,12 +1101,15 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
+ "tauri-runtime",
  "tempfile",
  "thiserror 2.0.21",
  "trash",
  "unicode-normalization",
  "uuid",
  "walkdir",
+ "windows 0.62.2",
+ "windows-future 0.3.2",
  "windows-native-keyring-store",
  "windows-sys 0.61.2",
  "xattr",
@@ -3286,6 +3291,17 @@ dependencies = [
  "bitflags 2.13.2",
  "objc2",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-local-authentication"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e48e0b8b339e0d9d2ed4416b7f93f9d4daadff7d4dd797f89867cde11aeac607"
+dependencies = [
+ "block2",
+ "objc2",
+ "objc2-foundation",
 ]
 
 [[package]]

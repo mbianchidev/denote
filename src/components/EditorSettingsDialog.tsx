@@ -17,13 +17,17 @@ import type { PluginPermissionRequest } from "@denote/plugin-sdk";
 import { PluginSettingsPanel } from "./PluginSettingsPanel";
 import type { GitSigningActions } from "./GitSigningSettings";
 import type { ThemePreference } from "../lib/theme";
+import { AppLockSettings } from "./AppLockSettings";
+import type { AppLockActions } from "./AppLockBoundary";
 
 interface EditorSettingsDialogProps {
+  appLock?: AppLockActions & { disabled: boolean };
   open: boolean;
   disabled: boolean;
   settings: EditorDisplaySettings;
   themePreference: ThemePreference;
   restoreTabs: boolean;
+  restoreTabsAvailable?: boolean;
   externalDomains: string[];
   allowAllExternalDomains: boolean;
   plugins: PluginView[];
@@ -69,11 +73,13 @@ interface EditorSettingsDialogProps {
 }
 
 export function EditorSettingsDialog({
+  appLock,
   open,
   disabled,
   settings,
   themePreference,
   restoreTabs,
+  restoreTabsAvailable = true,
   externalDomains,
   allowAllExternalDomains,
   plugins,
@@ -107,7 +113,7 @@ export function EditorSettingsDialog({
 }: EditorSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const firstControlRef = useRef<HTMLButtonElement>(null);
-  const [section, setSection] = useState<"editor" | "plugins">("editor");
+  const [section, setSection] = useState<"editor" | "plugins" | "security">("editor");
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -195,6 +201,11 @@ export function EditorSettingsDialog({
         >
           Plugins
         </button>
+        {appLock ? (
+          <button type="button" aria-pressed={section === "security"} onClick={() => setSection("security")}>
+            Security
+          </button>
+        ) : null}
       </nav>
 
       {section === "editor" ? (
@@ -323,7 +334,7 @@ export function EditorSettingsDialog({
             checked={restoreTabs}
             label="Reopen tabs from the last session"
             description="Restore this vault's open files, order, groups, collapsed state, and active file."
-            disabled={disabled}
+            disabled={disabled || !restoreTabsAvailable}
             onChange={onRestoreTabsChange}
           />
         </div>
@@ -388,6 +399,9 @@ export function EditorSettingsDialog({
           ) : null}
           </section>
         </div>
+      ) : section === "security" && appLock ? (
+        <AppLockSettings status={appLock.status} active={open} disabled={appLock.disabled}
+          onConfigure={appLock.configure} onLock={appLock.lock} />
       ) : (
         <PluginSettingsPanel
           plugins={plugins}
@@ -431,7 +445,7 @@ export function EditorSettingsDialog({
         ) : (
           <span />
         )}
-        <button type="button" className="primary-button" onClick={onClose}>
+        <button type="button" className={section === "security" ? "secondary-button" : "primary-button"} onClick={onClose}>
           Done
         </button>
       </footer>
