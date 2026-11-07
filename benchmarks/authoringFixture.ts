@@ -182,6 +182,11 @@ mockIPC((command, payload) => {
       return null;
     }
     case "get_runtime_info": return { operatingSystem: "macos", architecture: "aarch64", bundleType: "app", updateChannel: "stable", updaterConfigured: false };
+    case "get_app_lock_status": return {
+      enabled: false, locked: false, passwordEnabled: false, deviceAuthenticationEnabled: false,
+      inactivityMinutes: null,
+      deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+    };
     case "get_last_vault":
     case "refresh_vault": return structuredClone(snapshot);
     case "list_plugins": return structuredClone(plugins);

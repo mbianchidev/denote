@@ -1,4 +1,5 @@
 mod app_links;
+mod app_lock;
 mod commands;
 mod crypto;
 mod db;
@@ -13,6 +14,7 @@ mod sensitive;
 mod updater;
 mod vault;
 
+use app_lock::ipc::GuardedPlugin;
 use db::AppState;
 pub use plugins::git::gpg_signer::run_gpg_signer_if_requested;
 pub use sensitive::speech_helper::run_if_requested as run_speech_helper_if_requested;
@@ -233,28 +235,34 @@ pub fn run_askpass_if_requested() -> bool {
     plugins::git::askpass::run_askpass_if_requested()
 }
 
+fn application_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     if run_askpass_if_requested() {
         return;
     }
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(error) = window.show() {
-                    eprintln!("Unable to show existing Denote window: {error}");
+        .plugin(GuardedPlugin(tauri_plugin_single_instance::init(
+            |app, _, _| {
+                if let Some(window) = app.get_webview_window("main") {
+                    if let Err(error) = window.show() {
+                        eprintln!("Unable to show existing Denote window: {error}");
+                    }
+                    if let Err(error) = window.set_focus() {
+                        eprintln!("Unable to focus existing Denote window: {error}");
+                    }
                 }
-                if let Err(error) = window.set_focus() {
-                    eprintln!("Unable to focus existing Denote window: {error}");
-                }
-            }
-        }))
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_clipboard_manager::init())
-        .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
+            },
+        )))
+        .plugin(GuardedPlugin(tauri_plugin_deep_link::init()))
+        .plugin(GuardedPlugin(tauri_plugin_dialog::init()))
+        .plugin(GuardedPlugin(tauri_plugin_clipboard_manager::init()))
+        .plugin(GuardedPlugin(tauri_plugin_notification::init()))
+        .plugin(GuardedPlugin(tauri_plugin_opener::init()))
+        .plugin(GuardedPlugin(tauri_plugin_updater::Builder::new().build()))
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Focused(false)) {
                 let generation = sensitive::invalidate_credentials();
@@ -308,11 +316,17 @@ pub fn run() {
                 .filter(|path| path.is_dir())
                 .unwrap_or_else(|| default_vault_path.clone());
             db::set_last_vault(&connection, &active_vault.to_string_lossy())?;
-            let state = AppState::new(db_path, Some(active_vault));
+            let app_lock = app_lock::AppLockManager::load(db_path.clone())?;
+            let state = AppState::with_app_lock(db_path, Some(active_vault), app_lock);
             app.manage(state);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(app_lock::ipc::guard(tauri::generate_handler![
+            app_lock::get_app_lock_status,
+            app_lock::unlock_app_with_password,
+            app_lock::unlock_app_with_device,
+            app_lock::configure_app_lock,
+            app_lock::lock_app,
             sensitive::credentials::credential_store,
             sensitive::credentials::credential_transfer,
             sensitive::stop_sensitive_tools,
@@ -451,8 +465,8 @@ pub fn run() {
             plugins::release_plugin_git_clone_destination,
             plugins::plugin_git_clean_failed_clone,
             plugins::plugin_automatic_commit,
-        ])
-        .build(tauri::generate_context!())
+        ]))
+        .build(application_context())
         .expect("error while building Denote")
         .run(|app, event| match event {
             RunEvent::Exit => {
@@ -468,7 +482,9 @@ pub fn run() {
             }
             RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<AppState>();
-                if !state.exit_is_allowed() {
+                if state.app_lock.is_locked() {
+                    state.allow_exit();
+                } else if !state.exit_is_allowed() {
                     api.prevent_exit();
                     if let Err(error) = app.emit("denote://exit-requested", ()) {
                         eprintln!("Unable to request Denote exit flush: {error}");

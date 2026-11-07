@@ -1,6 +1,8 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
   AppLinkResolution,
+  AppLockConfigurationRequest,
+  AppLockStatus,
   AvailableUpdate,
   HistoryRevision,
   FileEncoding,
@@ -61,6 +63,14 @@ import type { CredentialRequest, CredentialResult } from "./credentials";
 import type { SpeechEngineStatus, SpeechProgress, SpeechTranscript } from "./speech";
 
 export const api = {
+  getAppLockStatus: () => invoke<AppLockStatus>("get_app_lock_status"),
+  unlockAppWithPassword: (password: string) =>
+    invoke<AppLockStatus>("unlock_app_with_password", { password }),
+  unlockAppWithDevice: () =>
+    invoke<AppLockStatus>("unlock_app_with_device"),
+  lockApp: () => invoke<AppLockStatus>("lock_app"),
+  configureAppLock: (request: AppLockConfigurationRequest) =>
+    invoke<AppLockStatus>("configure_app_lock", { request }),
   toolEnvironment: (pluginId: string, context: ToolContext) =>
     invoke<ToolEnvironment>("tool_environment", { pluginId, context }),
   chooseToolExecutable: (pluginId: string, kind: string) =>

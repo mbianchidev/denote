@@ -385,6 +385,21 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.
+- App lock is a separate optional core feature, disabled by default. A chosen
+  app password, native Touch ID on supported Macs, Windows Hello on supported
+  Windows desktops, or either enabled method unlocks it. Linux supports app
+  passwords and explicitly reports native-device unlock as unavailable.
+- An enabled app lock starts locked before vault restoration or plugin workers
+  start. Manual locking saves pending work, stops plugin workers and native
+  tools, seals an unlocked encrypted vault, clears its key, and withdraws all
+  workspace views. App unlock never unlocks vault encryption.
+- Inactivity locking is independently configurable from one to 240 minutes and
+  disabled by default. Locking stops terminal jobs; manual locks confirm running
+  terminals. Failed file or session saves cancel locking without losing edits.
+- Password changes and app-lock removal require the current app password when
+  one exists. Device-only settings changes require fresh native authentication.
+  A forgotten app password cannot be recovered. App lock does not encrypt
+  files, operational metadata, clipboard history, exports, or backups.
 - A locked encrypted vault exposes no PDF content. Decrypted PDF bytes,
   renderer workers, page canvases, text layers, search state, and renderer
   caches are released when the tab closes, the vault locks or switches, a file
