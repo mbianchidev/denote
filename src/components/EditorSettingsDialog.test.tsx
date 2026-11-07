@@ -27,6 +27,25 @@ const pluginProps = {
 };
 
 describe("EditorSettingsDialog", () => {
+  it("opens app lock in the Security section without exposing plugin controls", async () => {
+    const user = userEvent.setup();
+    render(<EditorSettingsDialog {...pluginProps} open disabled={false}
+      settings={DEFAULT_EDITOR_DISPLAY_SETTINGS} restoreTabs externalDomains={[]} allowAllExternalDomains={false}
+      onChange={vi.fn()} onRestoreTabsChange={vi.fn()} onRemoveExternalDomain={vi.fn()}
+      onClearExternalDomains={vi.fn()} onClose={vi.fn()}
+      appLock={{
+        disabled: false, configure: vi.fn(), lock: vi.fn(),
+        status: {
+          enabled: false, locked: false, passwordEnabled: false, deviceAuthenticationEnabled: false,
+          inactivityMinutes: null,
+          deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+        },
+      }} />);
+    await user.click(screen.getByRole("button", { name: "Security" }));
+    expect(screen.getByRole("checkbox", { name: "Enable app lock" })).not.toBeChecked();
+    expect(screen.queryByRole("button", { name: "Disable all plugins" })).not.toBeInTheDocument();
+  });
+
   it("keeps a closed settings dialog out of layout", () => {
     render(
       <EditorSettingsDialog

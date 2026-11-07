@@ -998,6 +998,11 @@ fn seal_active_vault_for_exit(state: &AppState) -> AppResult<()> {
 
 #[tauri::command]
 pub fn complete_exit(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    if state.app_lock.is_locked() {
+        state.allow_exit();
+        app.exit(0);
+        return Ok(());
+    }
     let _vault_access = state.write_vault_access()?;
     seal_active_vault_for_exit(&state)?;
     state.allow_exit();

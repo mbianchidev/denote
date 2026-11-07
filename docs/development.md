@@ -74,6 +74,33 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+App-lock checks use synthetic data and never request a real biometric prompt:
+
+```bash
+npx vitest run src/components/AppLockBoundary.test.tsx \
+  src/components/AppLockSettings.test.tsx src/lib/useAppInactivityLock.test.tsx \
+  src/components/EditorSettingsDialog.test.tsx src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml --locked app_lock:: --lib
+npx tsc --noEmit -p tsconfig.benchmarks.json
+npm exec --no -- playwright test benchmarks/appLock.perf.ts
+```
+
+The browser check requires the ordinary production build. It verifies that no
+vault or note is read before authorization, cancellation and wrong passwords
+leave the app locked, private editors disappear on manual lock, and either
+enabled method can restore the workspace. Native tests also exercise the real
+Tauri plugin-IPC route, key removal, ciphertext sealing, owned clipboard cleanup,
+configuration rejection, password changes, rate limits, and a 100 ms locked
+dispatch bound while authentication state is contended.
+
+For a hardware check, use the isolated Development application. Explicitly
+enable Touch ID or Windows Hello in **Settings → Security**, cancel once, then
+authenticate and verify that app lock does not bypass vault encryption.
+Windows native unlock requires the desktop consent interop API, documented for
+Windows build 22000 and later; earlier or unconfigured systems report
+unavailability and keep the app-password option. No associated domain, account,
+server, or downloadable plugin is required.
+
 Cargo defaults to two native test threads through `.cargo/config.toml`. Git
 integration fixtures launch real process groups; CPU-count parallelism can
 starve executable probes and cancellation handshakes before their deadlines.
@@ -1684,8 +1711,33 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-31**.
-Rechecked for the frontend dependency merge and CI repair on the same date.
+Last vendored-library check: **2026-11-07**.
+Rechecked before the native app-lock implementation. All seven vendor
+directories and `[patch.crates-io]` entries match the inventory below.
+Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
+GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
+0.3.0 / 0.6.0, notification 2.4.0 / 2.8.0, opener 2.5.5 / 2.7.2, and
+single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
+The exact registry, release-note, backport-request, and RustSec links below
+were checked again. No compatible published replacement removes a backport:
+the newer GTK/GLib types do not match GTK 0.18, Tauri utils 2.9.3 still requires
+URLPattern `^0.3`, and the newer plugins require Tauri `^2.12` while retaining
+zbus 5 or notify-rust's default zbus 5 backend.
+The [plugin migration request](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+remains open, but the [zbus 6 update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
+is now closed without merging; the
+[notify-rust update](https://github.com/hoodie/notify-rust/pull/294) remains
+open and unreleased. The
+[official RustSec inventory](https://github.com/RustSec/advisory-db/tree/main/crates)
+still has no direct advisory for GLib macros, URLPattern, or the three plugins.
+The original macro-error, Unicode, and standalone D-Bus dependency advisories
+remain applicable; GTK3 macros' maintenance advisory remains withdrawn.
+GLib's published-baseline iterator advisory stays visible despite its local
+source fix. All seven backports and the complete Windows-safe runtime family
+are retained.
+
+Historical checks on **2026-10-31**:
+Rechecked for the frontend dependency merge and CI repair on that date.
 Official registry records, release notes, the linked upstream backport and
 D-Bus migration requests, and RustSec sources below confirm the same seven
 compatible/current release pairs. No compatible published replacement removes
@@ -1715,7 +1767,7 @@ macro-error, Unicode, and D-Bus dependencies were checked explicitly against
 the advisories below. The three plugins also publish 3.0.0-alpha.3,
 which requires Tauri 3 and still uses zbus 5, so it is not a compatible
 replacement. No compatible
-published replacement removes a local backport. The open
+published replacement removes a local backport. The unmerged
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
 remain unreleased. The latest `trybuild2` 1.3.0 additionally depends on
@@ -1794,7 +1846,14 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-10-25**.
+Last upstream check: **2026-11-07**.
+
+Rechecked before adding native app authentication. Official Tauri 2.12.5 and
+Wry 0.57.1 release notes, the Windows blank-webview trackers below, and the
+current Tauri 3.0.0-alpha.6 release still provide no verified compatible fix
+for both Denote regressions. Tauri 3 is a separate incompatible runtime family,
+not a patch replacement. Native authentication dependencies must not move the
+reviewed npm, Cargo, Tao, Wry, or WebView2 versions.
 
 The Dependabot repair rechecked the releases and Windows issue/PR trackers
 below. No published fix was identified for both the blank renderer and

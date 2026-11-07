@@ -52,6 +52,7 @@ pub struct ProjectWorkspaceRecord {
 
 pub struct AppState {
     pub db_path: PathBuf,
+    pub(crate) app_lock: crate::app_lock::AppLockManager,
     active_vault: RwLock<Option<PathBuf>>,
     vault_key: RwLock<Option<VaultKey>>,
     vault_access: RwLock<()>,
@@ -59,9 +60,20 @@ pub struct AppState {
 }
 
 impl AppState {
+    #[cfg(test)]
     pub fn new(db_path: PathBuf, active_vault: Option<PathBuf>) -> Self {
+        let app_lock = crate::app_lock::AppLockManager::disabled(db_path.clone());
+        Self::with_app_lock(db_path, active_vault, app_lock)
+    }
+
+    pub(crate) fn with_app_lock(
+        db_path: PathBuf,
+        active_vault: Option<PathBuf>,
+        app_lock: crate::app_lock::AppLockManager,
+    ) -> Self {
         Self {
             db_path,
+            app_lock,
             active_vault: RwLock::new(active_vault),
             vault_key: RwLock::new(None),
             vault_access: RwLock::new(()),
@@ -75,6 +87,7 @@ impl AppState {
     }
 
     pub fn active_vault_optional(&self) -> AppResult<Option<PathBuf>> {
+        self.app_lock.ensure_unlocked()?;
         Ok(self
             .active_vault
             .read()
@@ -83,6 +96,7 @@ impl AppState {
     }
 
     pub fn set_active_vault(&self, path: PathBuf) -> AppResult<()> {
+        self.app_lock.ensure_unlocked()?;
         self.clear_vault_key()?;
         *self
             .active_vault
@@ -93,6 +107,7 @@ impl AppState {
     }
 
     pub fn set_vault_key(&self, key: VaultKey) -> AppResult<()> {
+        self.app_lock.ensure_unlocked()?;
         *self.vault_key.write().map_err(|_| {
             crate::error::AppError::State("Vault key lock is poisoned".to_string())
         })? = Some(key);
@@ -109,6 +124,7 @@ impl AppState {
     }
 
     pub fn vault_key(&self) -> AppResult<Zeroizing<[u8; 32]>> {
+        self.app_lock.ensure_unlocked()?;
         self.vault_key
             .read()
             .map_err(|_| crate::error::AppError::State("Vault key lock is poisoned".to_string()))?
@@ -126,15 +142,19 @@ impl AppState {
     }
 
     pub fn read_vault_access(&self) -> AppResult<RwLockReadGuard<'_, ()>> {
-        self.vault_access
-            .read()
-            .map_err(|_| crate::error::AppError::State("Vault access lock is poisoned".to_string()))
+        let access = self.vault_access.read().map_err(|_| {
+            crate::error::AppError::State("Vault access lock is poisoned".to_string())
+        })?;
+        self.app_lock.ensure_unlocked()?;
+        Ok(access)
     }
 
     pub fn write_vault_access(&self) -> AppResult<RwLockWriteGuard<'_, ()>> {
-        self.vault_access
-            .write()
-            .map_err(|_| crate::error::AppError::State("Vault access lock is poisoned".to_string()))
+        let access = self.vault_access.write().map_err(|_| {
+            crate::error::AppError::State("Vault access lock is poisoned".to_string())
+        })?;
+        self.app_lock.ensure_unlocked()?;
+        Ok(access)
     }
 
     pub fn allow_exit(&self) {

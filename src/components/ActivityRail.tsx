@@ -19,6 +19,7 @@ import {
   GripVertical,
   Info,
   ListChecks,
+  LockKeyhole,
   MessageSquare,
   Mic,
   Moon,
@@ -98,6 +99,8 @@ interface ActivityRailProps {
   onReminderChange?: (pluginId: string, providerId: string) => void;
   onTimeTrackingChange?: (pluginId: string, providerId: string) => void;
   onAbout: () => void;
+  onLockApp?: () => void;
+  lockAppDisabled?: boolean;
   onThemeToggle: () => void;
 }
 
@@ -180,6 +183,8 @@ function ActivityRailComponent({
   onReminderChange = () => {},
   onTimeTrackingChange = () => {},
   onAbout,
+  onLockApp,
+  lockAppDisabled = false,
   onThemeToggle,
 }: ActivityRailProps) {
   const [preferences, setPreferences] = useState(loadPluginRailPreferences);
@@ -588,6 +593,12 @@ function ActivityRailComponent({
           </details>
         ) : null}
       </div>
+      {onLockApp ? (
+        <button type="button" className="icon-button activity-rail__button" aria-label="Lock app"
+          title="Lock app" disabled={lockAppDisabled} onClick={onLockApp}>
+          <LockKeyhole aria-hidden="true" size={19} strokeWidth={1.8} />
+        </button>
+      ) : null}
       <button
         className="icon-button activity-rail__button"
         type="button"

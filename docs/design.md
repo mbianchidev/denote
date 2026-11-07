@@ -1117,6 +1117,23 @@ that paths remain visible. Recovery codes use a dense two-column monospace list
 and cannot be dismissed until the user confirms they were saved. Full
 decryption is the only danger-styled encryption action.
 
+### App lock
+
+**Settings → Security** owns the optional app lock. Use native checkboxes for
+enablement and independent password/device methods, labeled password fields,
+and a bounded inactivity select with **Disabled** selected initially.
+**Save app lock** is the single primary action; **Lock app now**, password
+changes, and the dialog's **Done** action remain secondary.
+
+The app unlock surface reuses the locked-vault card and shared control tokens,
+but says **App password** and never shows vault names, paths, switchers, note
+views, or plugin banners. With both methods enabled, **Unlock app** is primary
+and native device unlock is secondary. Authentication starts only from an
+explicit action. Cancellation and failure keep the app locked, clear password
+fields, announce the error, and restore focus. Settings remain reachable after
+app unlock even when vault encryption is still locked. Password drafts clear
+when Settings closes or its Security section is withdrawn.
+
 ## Do's and Don'ts
 
 ### Do:

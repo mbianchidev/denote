@@ -22,6 +22,10 @@ search, and recovery on your device. No account or hosted service is required.
   by another application.
 - **Encrypt a vault.** Protect file and revision contents with a password and
   ten one-time recovery codes.
+- **Lock the app.** Optionally require an app password, Touch ID, or Windows
+  Hello on startup. Configure manual and inactivity locking in
+  [Settings → Security](docs/user-guide/docs/App%20lock.md), independently of
+  vault encryption.
 
 Unencrypted notes remain ordinary Markdown files. Opening a note or switching
 between Rich and Source does not rewrite its source.

@@ -16,6 +16,19 @@ more detail and examples.
   the background.
 - Optionally encrypt a vault with a password and ten one-time recovery codes.
 
+## App lock
+
+- Optionally lock the entire app independently of vault encryption.
+- Choose an app password, available Touch ID or Windows Hello, or either method.
+- Start locked on launch and expose manual locking in the activity rail,
+  command palette, and **Settings → Security**.
+- Keep inactivity locking disabled by default, with bounded optional intervals.
+- Require the current app password for password changes and removal, or native
+  confirmation for device-only settings.
+- Keep encrypted vaults locked after app unlock until their own authentication.
+- Read [App lock](<App lock.md>) for setup, recovery limits, and file-protection
+  boundaries.
+
 ## Files and folders
 
 - Open and edit every regular file up to 25 MB.

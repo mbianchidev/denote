@@ -565,7 +565,7 @@ fn wrap_password_key(
     })
 }
 
-fn derive_password_key(
+pub(crate) fn derive_password_key(
     password: &[u8],
     salt: &[u8; 16],
     kdf: &KdfConfig,
@@ -641,7 +641,7 @@ fn decrypt(key: &[u8; 32], nonce: &[u8], ciphertext: &[u8], aad: &[u8]) -> AppRe
         .map_err(|_| AppError::Crypto("Encrypted content failed authentication".to_string()))
 }
 
-fn validate_password(password: &str) -> AppResult<()> {
+pub(crate) fn validate_password(password: &str) -> AppResult<()> {
     if password.chars().count() < PASSWORD_MIN_LENGTH {
         return Err(AppError::Crypto(format!(
             "Password must contain at least {PASSWORD_MIN_LENGTH} characters"

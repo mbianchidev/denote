@@ -29,12 +29,18 @@ import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type Lexi
 import { syntheticEmojiPicker, syntheticEmojiPluginView } from "./lib/emoji.testFixtures";
 
 const mockApi = vi.hoisted(() => ({
+  getAppLockStatus: vi.fn(),
+  unlockAppWithPassword: vi.fn(),
+  unlockAppWithDevice: vi.fn(),
+  lockApp: vi.fn(),
+  configureAppLock: vi.fn(),
   getRuntimeInfo: vi.fn(),
   checkForUpdate: vi.fn(),
   downloadUpdate: vi.fn(),
   discardPreparedUpdate: vi.fn(),
   installPreparedUpdate: vi.fn(),
   prepareExit: vi.fn(),
+  completeExit: vi.fn(),
   getLastVault: vi.fn(),
   resolveAppLink: vi.fn(),
   importAppLinkVault: vi.fn(),
@@ -389,6 +395,14 @@ describe("App initial file-tree expansion", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mockApi.getAppLockStatus.mockResolvedValue({
+      enabled: false,
+      locked: false,
+      passwordEnabled: false,
+      deviceAuthenticationEnabled: false,
+      inactivityMinutes: null,
+      deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+    });
     mockApi.getRuntimeInfo.mockResolvedValue({
       operatingSystem: "macos",
       architecture: "aarch64",
@@ -536,6 +550,77 @@ describe("App initial file-tree expansion", () => {
       commitId: "1111111111111111111111111111111111111111",
       push: null,
     });
+  });
+
+  it("does not restore vaults, read files, or start plugins before app unlock", async () => {
+    const user = userEvent.setup();
+    const status = {
+      enabled: true,
+      locked: true,
+      passwordEnabled: true,
+      deviceAuthenticationEnabled: false,
+      inactivityMinutes: null,
+      deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+    };
+    mockApi.getAppLockStatus.mockResolvedValue(status);
+    mockApi.unlockAppWithPassword.mockResolvedValue({ ...status, locked: false });
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("private.txt")]));
+    render(<App />);
+
+    await waitFor(() => expect(mockApi.getAppLockStatus).toHaveBeenCalled());
+    await screen.findByRole("heading", { name: "Denote is locked" });
+    expect(mockApi.getLastVault).not.toHaveBeenCalled();
+    expect(mockApi.readNote).not.toHaveBeenCalled();
+    expect(trackAppRender).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText("App password"), "synthetic app password");
+    await user.click(screen.getByRole("button", { name: "Unlock app" }));
+    await waitFor(() => expect(mockApi.getLastVault).toHaveBeenCalledTimes(1));
+    expect(trackAppRender).toHaveBeenCalled();
+  });
+
+  it("does not lock the app when the tab session cannot be persisted", async () => {
+    const user = userEvent.setup();
+    const status = {
+      enabled: true, locked: false, passwordEnabled: true, deviceAuthenticationEnabled: false,
+      inactivityMinutes: null,
+      deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+    };
+    mockApi.getAppLockStatus.mockResolvedValue(status);
+    mockApi.lockApp.mockResolvedValue({ ...status, locked: true });
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("private.txt", "text")]));
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open private.txt" }));
+    await screen.findByRole("button", { name: "Change Edit private.txt" });
+    mockApi.saveTabSession.mockRejectedValue(new Error("Synthetic tab-session write failed."));
+    await user.click(screen.getByRole("button", { name: "Lock app" }));
+    await waitFor(() => expect(mockApi.saveTabSession).toHaveBeenCalled());
+    expect(mockApi.lockApp).not.toHaveBeenCalled();
+    expect(mockPluginController.shutdown).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Change Edit private.txt" })).toBeEnabled();
+  });
+
+  it("flushes unsaved edits and stops plugins before manual app locking", async () => {
+    const user = userEvent.setup();
+    const status = {
+      enabled: true, locked: false, passwordEnabled: true, deviceAuthenticationEnabled: false,
+      inactivityMinutes: null,
+      deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+    };
+    mockApi.getAppLockStatus.mockResolvedValue(status);
+    mockApi.lockApp.mockResolvedValue({ ...status, locked: true });
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("private.txt", "text")]));
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open private.txt" }));
+    await user.click(screen.getByRole("button", { name: "Change Edit private.txt" }));
+    await user.click(screen.getByRole("button", { name: "Lock app" }));
+    await screen.findByRole("heading", { name: "Denote is locked" });
+    expect(mockApi.saveNote).toHaveBeenCalledWith(
+      "private.txt", "private.txt content changed", "utf8", "lf", "flush", "private.txt-hash",
+    );
+    expect(mockApi.saveNote.mock.invocationCallOrder[0]).toBeLessThan(mockApi.lockApp.mock.invocationCallOrder[0]);
+    expect(mockPluginController.shutdown.mock.invocationCallOrder[0]).toBeLessThan(mockApi.lockApp.mock.invocationCallOrder[0]);
+    expect(screen.queryByText("private.txt content changed")).not.toBeInTheDocument();
   });
 
   it("downloads a signed update after startup and waits for the user to restart", async () => {

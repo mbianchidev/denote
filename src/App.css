@@ -5900,7 +5900,9 @@ button.tag-chip:active,
 }
 
 .vault-unlock label,
-.encryption-dialog__form label {
+.encryption-dialog__form label,
+.app-lock-settings__fields label,
+.app-lock-settings__timeout {
   display: grid;
   gap: 6px;
   color: var(--text-secondary);
@@ -5908,7 +5910,9 @@ button.tag-chip:active,
 }
 
 .vault-unlock input,
-.encryption-dialog__form input {
+.encryption-dialog__form input,
+.app-lock-settings__fields input,
+.app-lock-settings__timeout select {
   width: 100%;
   height: 38px;
   padding: 0 10px;
@@ -5921,6 +5925,25 @@ button.tag-chip:active,
 .vault-unlock__error,
 .encryption-dialog__error {
   color: var(--danger) !important;
+}
+
+.app-lock-settings__fields {
+  display: grid;
+  gap: 12px;
+}
+
+.app-lock-settings__fields p {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.app-lock-settings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .vault-unlock__alternate {

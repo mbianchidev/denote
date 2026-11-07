@@ -142,6 +142,53 @@ The browser is the review/edit surface; Denote never submits an issue.
 
 ## Data boundaries
 
+### Optional app lock
+
+`src-tauri/src/app_lock.rs` owns device-local app-lock configuration and native
+authorization. Its private SQLite `settings.app_lock` record contains a version,
+an optional random-salted Argon2id verifier, a device-authentication flag, and
+an optional bounded inactivity interval. It never stores a password, vault key,
+biometric sample, or synced passkey. The verifier reuses the existing 19 MiB,
+two-iteration Argon2id implementation and constant-time comparison. Inputs and
+configuration size are bounded; unknown fields, invalid versions, unreadable
+configuration, and unsupported bounds fail closed rather than disabling lock.
+Authentication is single-flight, failed passwords have a bounded monotonic
+cooldown, and a lock-generation change invalidates outstanding native prompts.
+
+The platform adapter creates a fresh macOS LocalAuthentication context with
+biometric-only policy, no reuse window, and explicit invalidation. Windows uses
+the desktop `IUserConsentVerifierInterop` API tied to the main Denote HWND,
+with balanced WinRT apartment initialization and bounded completion/cancellation.
+Only the native verified result authorizes unlock. Prompts name their actual
+unlock or settings-change purpose. Native availability does not authorize
+anything; unsupported or cancelled authentication never falls back to success.
+Linux has no native adapter and retains the app-password path.
+
+The main invoke handler and every installed Tauri plugin have separate native
+guards because Tauri routes their IPC independently. Locked access permits only
+lock status, authentication, exit, and named resource-cleanup commands that
+return no workspace data. AppState rechecks the lock after acquiring vault
+access, so queued reads and writes cannot resume into a locked app. The dispatch
+guard uses nonblocking atomic state; password hashing cannot stall the UI thread.
+The explicit `tauri-runtime` dependency supplies the plugin initialization-script
+type at the existing exact 2.11.3 pin; no runtime-family version changes.
+
+`AppLockBoundary` does not mount the workspace, restore vaults, or start plugin
+workers before native authorization. Manual and idle locks use the existing
+workspace-operation barrier, require successful session persistence, and drain
+plugin shutdown before native sealing, sensitive-session revocation, owned
+clipboard-file cleanup, and key removal. Workspace unmount withdraws editors,
+PDF bytes, search workers, recordings, derived models, and plugin views.
+Native lock failures remain on an error surface until an explicit state check;
+pre-lock save failures preserve the current workspace. The outer boundary owns
+exit handling while no workspace is mounted, preventing an orphaned process.
+
+App lock is an application-access boundary, not vault encryption or a defense
+against the same OS account changing its files, process inspection, compromised
+devices, clipboard history, or already exported plaintext. An app unlock restores
+the ordinary workspace path; encrypted vaults still require their own password
+or recovery code.
+
 The selected vault is the content boundary. Every regular file up to 25 MB can
 be opened. Markdown (`.md`, `.markdown`) gets the rich/source editor, `.mdx`
 uses non-executing JSX-highlighted source editing, other valid UTF-8 files use

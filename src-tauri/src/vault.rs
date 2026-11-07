@@ -181,11 +181,20 @@ fn prune_stale_clipboard_files_in_root(cache_root: &Path) -> AppResult<()> {
 }
 
 pub fn remove_other_clipboard_files(cache_root: &Path, keep: &Path) -> AppResult<()> {
+    remove_clipboard_files(cache_root, Some(keep))
+}
+
+pub(crate) fn clear_clipboard_files(app_cache_dir: &Path) -> AppResult<()> {
+    let cache_root = prepare_clipboard_cache_root(app_cache_dir)?;
+    remove_clipboard_files(&cache_root, None)
+}
+
+fn remove_clipboard_files(cache_root: &Path, keep: Option<&Path>) -> AppResult<()> {
     validate_clipboard_cache_root(cache_root)?;
     for entry in fs::read_dir(cache_root)? {
         let entry = entry?;
         let path = entry.path();
-        if path == keep {
+        if keep == Some(path.as_path()) {
             continue;
         }
         let metadata = fs::symlink_metadata(&path)?;

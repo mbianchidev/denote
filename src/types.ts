@@ -480,3 +480,27 @@ export interface HeadingItem {
   text: string;
   slug: string;
 }
+export interface DeviceAuthenticationStatus {
+  available: boolean;
+  name: string;
+  unavailableReason: string | null;
+}
+
+export interface AppLockStatus {
+  enabled: boolean;
+  locked: boolean;
+  passwordEnabled: boolean;
+  deviceAuthenticationEnabled: boolean;
+  inactivityMinutes: number | null;
+  deviceAuthentication: DeviceAuthenticationStatus;
+}
+
+export interface AppLockConfigurationRequest {
+  password:
+    | { kind: "keep" }
+    | { kind: "set"; value: string }
+    | { kind: "remove" };
+  currentPassword: string | null;
+  deviceAuthenticationEnabled: boolean;
+  inactivityMinutes: number | null;
+}
