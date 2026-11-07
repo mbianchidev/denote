@@ -63,6 +63,7 @@ describe("AppLockBoundary", () => {
     render(<AppLockBoundary>{mountWorkspace}</AppLockBoundary>);
 
     await screen.findByRole("heading", { name: "Denote is locked" });
+    expect(screen.queryByText(/vault encryption/i)).not.toBeInTheDocument();
     expect(mountWorkspace).not.toHaveBeenCalled();
     expect(mockApi.unlockAppWithDevice).not.toHaveBeenCalled();
 

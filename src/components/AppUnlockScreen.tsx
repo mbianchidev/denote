@@ -109,7 +109,7 @@ export function AppUnlockScreen({
           </>
         ) : status ? (
           <>
-            <p>Unlock Denote to open your workspace. Vault encryption stays separate.</p>
+            <p>Unlock Denote to open your workspace.</p>
             {status.passwordEnabled ? (
               <>
                 <label>

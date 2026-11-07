@@ -1133,6 +1133,8 @@ explicit action. Cancellation and failure keep the app locked, clear password
 fields, announce the error, and restore focus. Settings remain reachable after
 app unlock even when vault encryption is still locked. Password drafts clear
 when Settings closes or its Security section is withdrawn.
+Keep the vault-encryption distinction in Security settings, not on the unlock
+screen.
 
 ## Do's and Don'ts
 

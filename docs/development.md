@@ -1712,6 +1712,11 @@ versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-11-07**.
+Rechecked again on 2026-11-07 for the unlock-screen copy and Security settings
+preview revision. The same seven vendor entries, compatible/current version
+pairs, official release notes, tracker states, and RustSec outcomes below were
+verified afresh. No compatible published replacement was found; every backport
+and runtime pin remains unchanged.
 Rechecked before the native app-lock implementation. All seven vendor
 directories and `[patch.crates-io]` entries match the inventory below.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
