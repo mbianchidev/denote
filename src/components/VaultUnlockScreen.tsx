@@ -3,6 +3,7 @@ import {
   KeyRound,
   LockKeyhole,
   Moon,
+  Settings2,
   Sun,
 } from "lucide-react";
 import { useState } from "react";
@@ -13,6 +14,7 @@ interface VaultUnlockScreenProps {
   theme: Theme;
   onThemeToggle: () => void;
   onShowVaults: () => void;
+  onSettings?: () => void;
   onUnlockWithPassword: (password: string) => Promise<void>;
   onUnlockWithRecoveryCode: (recoveryCode: string) => Promise<void>;
 }
@@ -22,6 +24,7 @@ export function VaultUnlockScreen({
   theme,
   onThemeToggle,
   onShowVaults,
+  onSettings,
   onUnlockWithPassword,
   onUnlockWithRecoveryCode,
 }: VaultUnlockScreenProps) {
@@ -56,6 +59,12 @@ export function VaultUnlockScreen({
   return (
     <main className="vault-unlock">
       <div className="vault-unlock__toolbar">
+        {onSettings ? (
+          <button type="button" className="icon-button" aria-label="Open settings" title="Settings"
+            disabled={busy} onClick={onSettings}>
+            <Settings2 aria-hidden="true" size={17} />
+          </button>
+        ) : null}
         <button
           type="button"
           className="icon-button"

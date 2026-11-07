@@ -94,6 +94,11 @@ mockWindows("main");
 mockIPC((command, payload) => {
   switch (command) {
     case "get_runtime_info": return { operatingSystem: "linux", architecture: "x86_64", bundleType: "deb", updateChannel: "stable", updaterConfigured: false };
+    case "get_app_lock_status": return {
+      enabled: false, locked: false, passwordEnabled: false, deviceAuthenticationEnabled: false,
+      inactivityMinutes: null,
+      deviceAuthentication: { available: false, name: "Device authentication", unavailableReason: "Synthetic unsupported device." },
+    };
     case "get_last_vault":
     case "refresh_vault": return structuredClone(snapshot);
     case "list_plugins": return structuredClone(plugins);

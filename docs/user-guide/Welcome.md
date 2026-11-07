@@ -132,6 +132,7 @@ ambiguous `.pp` behavior.
 8. [Editor display](<docs/Editor display.md>)
 9. [Keyboard shortcuts](<docs/Keyboard shortcuts.md>)
 10. [Optional plugins](<docs/Optional plugins.md>)
+11. [App lock](<docs/App lock.md>)
 
 Explore the `test` folder for Japanese, Russian, mixed-script, emoji,
 punctuation, nested-path, link, rename, and move fixtures. Use `examples`,
