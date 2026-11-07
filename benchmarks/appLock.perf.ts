@@ -54,6 +54,11 @@ test("production app lock gates startup, handles cancellation, and withdraws pri
   const settingsImage = info.outputPath("security-settings.png");
   await settings.screenshot({ path: settingsImage });
   await info.attach("Security settings", { path: settingsImage, contentType: "image/png" });
+  await settings.getByRole("button", { name: "Save app lock", exact: true }).scrollIntoViewIfNeeded();
+  await expect(settings.getByRole("button", { name: "Save app lock", exact: true })).toBeInViewport();
+  const settingsActions = info.outputPath("security-settings-actions.png");
+  await settings.screenshot({ path: settingsActions });
+  await info.attach("Security settings actions", { path: settingsActions, contentType: "image/png" });
   await settings.getByRole("button", { name: "Done", exact: true }).click();
   await page.getByRole("button", { name: "Small.md", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "editable markdown", exact: true })).toContainText("Small synthetic page");
@@ -93,6 +98,11 @@ test("Security settings show password setup with inactivity locking disabled", a
   const setupImage = info.outputPath("app-lock-setup.png");
   await settings.screenshot({ path: setupImage });
   await info.attach("App lock setup", { path: setupImage, contentType: "image/png" });
+  await settings.getByRole("button", { name: "Save app lock", exact: true }).scrollIntoViewIfNeeded();
+  await expect(settings.getByRole("button", { name: "Save app lock", exact: true })).toBeInViewport();
+  const setupActions = info.outputPath("app-lock-setup-actions.png");
+  await settings.screenshot({ path: setupActions });
+  await info.attach("App lock setup actions", { path: setupActions, contentType: "image/png" });
   expect(errors).toEqual([]);
   expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.unexpectedCommands)).toEqual([]);
 });
