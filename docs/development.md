@@ -1411,9 +1411,11 @@ preserves the canonical gzip fixture and all 20 current plugin archive sizes
 and SHA-256 digests with the existing `legacyHash` and portable-header settings.
 Do not rewrite old
 ledger entries or repin old versions to fix already-published remediation.
-The host-only compatible updates are autocomplete 6.20.4, @mdxeditor/editor
-4.3.4, @pierre/diffs 1.6.2, lucide-react 1.63.0, mdast-util-to-markdown 2.2.1,
-and jsdom 30.1.3; no Tauri-family upgrade is implied.
+The host-only frontend updates use Lexical 0.53.0, @mdxeditor/editor 4.5.0,
+@pierre/diffs 1.6.4, lucide-react 1.68.0, mdast-util-to-markdown 2.2.2,
+PDF.js 6.5.438, zbsearch 4.0.2, @types/node 26.6.6,
+@vitejs/plugin-react 6.2.1, and Vitest 5.1.0. Autocomplete 6.20.4 and
+jsdom 30.1.3 remain unchanged; no Tauri-family upgrade is implied.
 
 After pinning, inspect `npm ls pele mdast-util-from-markdown dompurify
 rolldown`, run full and workspace-root `npm audit --audit-level=low`,
@@ -1684,21 +1686,18 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-31**.
-Rechecked for the frontend dependency merge and CI repair on the same date.
-Official registry records, release notes, the linked upstream backport and
-D-Bus migration requests, and RustSec sources below confirm the same seven
-compatible/current release pairs. No compatible published replacement removes
-a local backport; all reviewed sources and runtime pins remain unchanged.
-Rechecked again for the Phase 4 requirement audit, UI evidence, and distinct
-sidebar icons on the same date. The seven compatible/current release pairs and
-the linked upstream and RustSec outcomes below remain unchanged; no compatible
-published replacement removes a local backport.
-All seven vendor directories and `[patch.crates-io]` entries were rechecked at
-the start of the Phase 4 linter, build, and terminal implementation using the
-[official registry index](https://github.com/rust-lang/crates.io-index).
-The fresh release-note, tracker, and RustSec check found the same versions,
-compatibility constraints, and no compatible replacement as the previous check.
+Last vendored-library check: **2026-11-07**.
+Rechecked all seven vendor directories and `[patch.crates-io]` entries for
+PR #147's frontend CI repair. Official registry records, release notes, the
+linked upstream backport and D-Bus migration requests, and the
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/309392b18f6b17022f82c701f300433126901068/crates)
+confirm the compatible/current release pairs and constraints below. No
+compatible published replacement removes a local backport; the reviewed source
+fixes, visible GLib advisory, and Windows-safe runtime pins remain unchanged.
+The plugin requirements were checked in the official sparse records for
+[notification](https://index.crates.io/ta/ur/tauri-plugin-notification),
+[opener](https://index.crates.io/ta/ur/tauri-plugin-opener), and
+[single-instance](https://index.crates.io/ta/ur/tauri-plugin-single-instance).
 Published versions and dependency requirements were read from the
 [official sparse registry](https://index.crates.io/config.json), including the
 [compatible GLib records](https://index.crates.io/gl/ib/glib),
@@ -1715,10 +1714,13 @@ macro-error, Unicode, and D-Bus dependencies were checked explicitly against
 the advisories below. The three plugins also publish 3.0.0-alpha.3,
 which requires Tauri 3 and still uses zbus 5, so it is not a compatible
 replacement. No compatible
-published replacement removes a local backport. The open
+published replacement removes a local backport. The combined
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
-and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
-remain unreleased. The latest `trybuild2` 1.3.0 additionally depends on
+was closed without merging. The
+[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759),
+[notify-rust update](https://github.com/hoodie/notify-rust/pull/294), and
+[new notify-rust migration](https://github.com/hoodie/notify-rust/pull/297)
+remain open and unreleased. The latest `trybuild2` 1.3.0 additionally depends on
 unmaintained `basic-toml`
 ([RUSTSEC-2026-0374](https://rustsec.org/advisories/RUSTSEC-2026-0374));
 the local regression tooling uses maintained `trybuild` instead, with equivalent
@@ -1862,9 +1864,12 @@ cannot remove the older graph: the released Tauri opener and single-instance
 plugins, notify-rust, secret-service, and zbus-secret-service-keyring-store still
 require zbus 5. The coordinated
 [Tauri plugin migration](https://github.com/tauri-apps/plugins-workspace/issues/3716)
-and [dependency update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
-remain open, as does
-[notify-rust's update](https://github.com/hoodie/notify-rust/pull/294).
+and [single-instance update](https://github.com/tauri-apps/plugins-workspace/pull/3759)
+remain open. The earlier
+[combined dependency update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
+was closed without merging; both
+[notify-rust's update](https://github.com/hoodie/notify-rust/pull/294) and
+[its newer migration](https://github.com/hoodie/notify-rust/pull/297) remain open.
 Until compatible published clients or separately reviewed source backports are
 adopted together, keep those warnings visible and preserve the Windows-safe
 runtime family.
