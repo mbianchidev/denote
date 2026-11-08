@@ -1900,6 +1900,8 @@ corresponding source, notices, and SPDX SBOM digests for Linux x64, macOS x64
 and ARM64, and Windows x64.
 
 `scripts/bundled-tools.mjs` performs bounded HTTPS downloads without `latest`,
+retries transient download failures within four attempts from the original
+locked URL without relaxing redirect, size, or digest checks,
 validates signed tag metadata or GitHub artifact attestations, rejects unsafe
 tar/ZIP paths and entry types, enforces expanded-size limits, builds upstream
 Git with deterministic locale/time inputs on Linux and macOS. Apple builds

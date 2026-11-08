@@ -344,6 +344,14 @@ npm run verify:bundled-tools -- --target aarch64-apple-darwin
 The immutable inputs live in `bundled-tools.lock.json`. Preparation never
 resolves `latest`; it verifies bounded downloads, release provenance, archive
 paths, the installed tree, executable permissions, and exact Git/gh versions.
+Archive and detached-signature downloads retry HTTP 408, 429, 500, 502, 503,
+and 504, timeouts, and transient connection failures up to four total attempts,
+with 1, 2, and 4 second backoff. Each attempt has one 60 second deadline across
+its redirects and body read and restarts from the original locked URL, discarding
+interrupted response bytes. Retry warnings preserve the failure and attempt
+count. Permanent HTTP/TLS failures, disallowed redirects, and size or SHA-256
+violations fail immediately; retries never change the pinned artifact or bypass
+integrity checks.
 GitHub tag metadata uses `GH_TOKEN` or `GITHUB_TOKEN` when present, otherwise it
 reuses the token stored by `gh auth login` for `github.com`. Without a token it
 falls back to the anonymous API limit, so authenticate before release
@@ -1713,12 +1721,11 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-07**.
-Rechecked all seven vendor directories and `[patch.crates-io]` entries for
-PR #147's frontend CI repair and merge of the native app-lock changes from
-PR #146. The native app-lock implementation and Security settings preview
-checks, and the historical 2026-10-31 frontend and Phase 4 checks, found the
-same compatible/current pairs.
+Last vendored-library check: **2026-11-08**.
+Rechecked all seven vendor directories and `[patch.crates-io]` entries before
+fixing transient HTTP 504 failures in release preparation. Official registry
+records, upstream release notes and migration/backport trackers, and the RustSec
+snapshot linked below still show the same compatibility constraints.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
 GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
 0.3.0 / 0.6.0, notification 2.4.0 / 2.8.0, opener 2.5.5 / 2.7.2, and

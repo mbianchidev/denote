@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
   assertPackagedSize,
   currentTarget,
+  downloadExact,
   gitBuildEnvironment,
   gitMakeFlags,
   githubApiToken,
@@ -254,4 +256,373 @@ test("preserves non-macOS build environment values without xcrun", () => {
   });
   assert.equal(environment.CC, "/custom/clang");
   assert.equal(environment.SDKROOT, "/custom/sdk");
+});
+
+function downloadFixture(t) {
+  const directory = mkdtempSync(join(tmpdir(), "denote-download-test-"));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const bytes = Buffer.from("synthetic tool archive");
+  const artifact = {
+    archiveUrl: "https://downloads.example.test/tool.zip",
+    sizeBytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+  };
+  const delays = [];
+  const warnings = [];
+  t.mock.method(console, "warn", (message) => warnings.push(message));
+  return {
+    artifact,
+    bytes,
+    destination: join(directory, "archive"),
+    allowlist: ["downloads.example.test", "assets.example.test"],
+    delays,
+    warnings,
+    sleep: async (delay) => { delays.push(delay); },
+  };
+}
+
+test("retries gateway failures from the original locked URL", async (t) => {
+  const fixture = downloadFixture(t);
+  const urls = [];
+  const signals = [];
+  const deadlines = [];
+  t.mock.method(AbortSignal, "timeout", (milliseconds) => {
+    deadlines.push(milliseconds);
+    return new AbortController().signal;
+  });
+  let cancellations = 0;
+  const discardedBody = () => new ReadableStream({
+    cancel() { cancellations += 1; },
+  });
+  const responses = [
+    new Response(discardedBody(), { status: 504 }),
+    new Response(discardedBody(), {
+      status: 302,
+      headers: { location: "https://assets.example.test/stale" },
+    }),
+    new Response(discardedBody(), { status: 503 }),
+    new Response(discardedBody(), {
+      status: 302,
+      headers: { location: "https://assets.example.test/fresh" },
+    }),
+    new Response(fixture.bytes),
+  ];
+  const path = await downloadExact(
+    fixture.artifact,
+    fixture.allowlist,
+    fixture.destination,
+    {
+      sleep: fixture.sleep,
+      async fetch(url, options) {
+        urls.push(url);
+        signals.push(options.signal);
+        assert.equal(options.redirect, "manual");
+        assert.equal(options.headers.authorization, undefined);
+        assert.equal(options.signal.aborted, false);
+        assert.ok(responses.length > 0);
+        return responses.shift();
+      },
+    },
+  );
+  assert.equal(path, fixture.destination);
+  assert.deepEqual(readFileSync(path), fixture.bytes);
+  assert.deepEqual(urls, [
+    fixture.artifact.archiveUrl,
+    fixture.artifact.archiveUrl,
+    "https://assets.example.test/stale",
+    fixture.artifact.archiveUrl,
+    "https://assets.example.test/fresh",
+  ]);
+  assert.equal(signals[1], signals[2]);
+  assert.equal(signals[3], signals[4]);
+  assert.notEqual(signals[0], signals[1]);
+  assert.notEqual(signals[1], signals[3]);
+  assert.deepEqual(deadlines, [60_000, 60_000, 60_000]);
+  assert.equal(cancellations, 4);
+  assert.deepEqual(fixture.delays, [1_000, 2_000]);
+  assert.equal(fixture.warnings.length, 2);
+  assert.match(fixture.warnings[0], /attempt 1\/4.*HTTP 504.*1000 ms/);
+  assert.match(fixture.warnings[1], /attempt 2\/4.*HTTP 503.*2000 ms/);
+});
+
+test("retries only the explicitly transient HTTP statuses", async (t) => {
+  for (const status of [408, 429, 500, 502, 503, 504]) {
+    await t.test(`HTTP ${status}`, async (t) => {
+      const fixture = downloadFixture(t);
+      let calls = 0;
+      await downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+        sleep: fixture.sleep,
+        async fetch() {
+          calls += 1;
+          return calls === 1
+            ? new Response("temporarily unavailable", { status })
+            : new Response(fixture.bytes);
+        },
+      });
+      assert.equal(calls, 2);
+      assert.deepEqual(readFileSync(fixture.destination), fixture.bytes);
+      assert.deepEqual(fixture.delays, [1_000]);
+    });
+  }
+});
+
+test("bounds retries and preserves the last HTTP failure", async (t) => {
+  const fixture = downloadFixture(t);
+  let calls = 0;
+  await assert.rejects(
+    downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+      sleep: fixture.sleep,
+      async fetch() {
+        calls += 1;
+        return new Response("temporarily unavailable", { status: 504 });
+      },
+    }),
+    /after 4 attempts.*HTTP 504/,
+  );
+  assert.equal(calls, 4);
+  assert.deepEqual(fixture.delays, [1_000, 2_000, 4_000]);
+  assert.equal(fixture.warnings.length, 3);
+  assert.equal(existsSync(fixture.destination), false);
+});
+
+test("retries timeouts and transient network errors", async (t) => {
+  const errors = [
+    new DOMException("request timed out", "TimeoutError"),
+    new DOMException("body read aborted", "AbortError"),
+    new TypeError("fetch failed", { cause: { code: "ECONNRESET" } }),
+    new TypeError("fetch failed", { cause: { code: "EAI_AGAIN" } }),
+    Object.assign(new Error("connection timed out"), {
+      code: "UND_ERR_CONNECT_TIMEOUT",
+    }),
+  ];
+  for (const error of errors) {
+    await t.test(error.message, async (t) => {
+      const fixture = downloadFixture(t);
+      let calls = 0;
+      await downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+        sleep: fixture.sleep,
+        async fetch() {
+          calls += 1;
+          if (calls === 1) throw error;
+          return new Response(fixture.bytes);
+        },
+      });
+      assert.equal(calls, 2);
+      assert.deepEqual(readFileSync(fixture.destination), fixture.bytes);
+      assert.deepEqual(fixture.delays, [1_000]);
+    });
+  }
+});
+
+test("discards interrupted response bytes before retrying", async (t) => {
+  const fixture = downloadFixture(t);
+  let calls = 0;
+  await downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+    sleep: fixture.sleep,
+    async fetch() {
+      calls += 1;
+      if (calls > 1) return new Response(fixture.bytes);
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(fixture.bytes.subarray(0, 4));
+        },
+        pull(controller) {
+          controller.error(new TypeError("terminated", {
+            cause: { code: "UND_ERR_SOCKET" },
+          }));
+        },
+      }));
+    },
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(readFileSync(fixture.destination), fixture.bytes);
+  assert.deepEqual(fixture.delays, [1_000]);
+});
+
+test("does not retry permanent HTTP or TLS failures", async (t) => {
+  for (const status of [401, 403, 404, 410]) {
+    await t.test(`HTTP ${status}`, async (t) => {
+      const fixture = downloadFixture(t);
+      let calls = 0;
+      await assert.rejects(
+        downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+          sleep: fixture.sleep,
+          async fetch() {
+            calls += 1;
+            return new Response("unavailable", { status });
+          },
+        }),
+        new RegExp(`HTTP ${status}`),
+      );
+      assert.equal(calls, 1);
+      assert.deepEqual(fixture.delays, []);
+      assert.deepEqual(fixture.warnings, []);
+      assert.equal(existsSync(fixture.destination), false);
+    });
+  }
+  await t.test("invalid TLS certificate", async (t) => {
+    const fixture = downloadFixture(t);
+    const error = new TypeError("fetch failed", {
+      cause: { code: "CERT_HAS_EXPIRED" },
+    });
+    let calls = 0;
+    await assert.rejects(
+      downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+        sleep: fixture.sleep,
+        async fetch() {
+          calls += 1;
+          throw error;
+        },
+      }),
+      (actual) => actual === error,
+    );
+    assert.equal(calls, 1);
+    assert.deepEqual(fixture.delays, []);
+  });
+});
+
+test("does not retry size or digest violations or retain invalid bytes", async (t) => {
+  for (const failure of ["declared size", "oversized", "short", "digest"]) {
+    await t.test(failure, async (t) => {
+      const fixture = downloadFixture(t);
+      let calls = 0;
+      const responses = {
+        "declared size": new Response(fixture.bytes, {
+          headers: { "content-length": String(fixture.bytes.length + 1) },
+        }),
+        oversized: new Response(Buffer.concat([fixture.bytes, Buffer.from("extra")])),
+        short: new Response(fixture.bytes.subarray(0, 4)),
+        digest: new Response(Buffer.alloc(fixture.bytes.length, 120)),
+      };
+      await assert.rejects(
+        downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+          sleep: fixture.sleep,
+          async fetch() {
+            calls += 1;
+            return responses[failure];
+          },
+        }),
+        /size|integrity/,
+      );
+      assert.equal(calls, 1);
+      assert.deepEqual(fixture.delays, []);
+      assert.equal(existsSync(fixture.destination), false);
+    });
+  }
+});
+
+test("does not mask permanent failures when discarding an errored body", async (t) => {
+  for (const failure of ["HTTP 404", "declared size"]) {
+    await t.test(failure, async (t) => {
+      const fixture = downloadFixture(t);
+      let calls = 0;
+      await assert.rejects(
+        downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+          sleep: fixture.sleep,
+          async fetch() {
+            calls += 1;
+            return new Response(new ReadableStream({
+              start(controller) {
+                controller.error(new TypeError("terminated", {
+                  cause: { code: "UND_ERR_SOCKET" },
+                }));
+              },
+            }), failure === "HTTP 404"
+              ? { status: 404 }
+              : { headers: { "content-length": "1" } });
+          },
+        }),
+        failure === "HTTP 404" ? /HTTP 404/ : /Download size changed/,
+      );
+      assert.equal(calls, 1);
+      assert.deepEqual(fixture.delays, []);
+      assert.equal(fixture.warnings.length, 1);
+      assert.match(fixture.warnings[0], /Unable to cancel.*terminated/);
+      assert.equal(existsSync(fixture.destination), false);
+    });
+  }
+});
+
+test("rechecks the redirect allowlist after a retry", async (t) => {
+  const fixture = downloadFixture(t);
+  let calls = 0;
+  await assert.rejects(
+    downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+      sleep: fixture.sleep,
+      async fetch(url) {
+        assert.equal(url, fixture.artifact.archiveUrl);
+        calls += 1;
+        return calls === 1
+          ? new Response("temporarily unavailable", { status: 504 })
+          : new Response(null, {
+              status: 302,
+              headers: { location: "http://untrusted.example.test/tool.zip" },
+            });
+      },
+    }),
+    /Download host is not allowed/,
+  );
+  assert.equal(calls, 2);
+  assert.deepEqual(fixture.delays, [1_000]);
+  assert.equal(existsSync(fixture.destination), false);
+});
+
+test("does not retry an exhausted redirect limit", async (t) => {
+  const fixture = downloadFixture(t);
+  let calls = 0;
+  await assert.rejects(
+    downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+      sleep: fixture.sleep,
+      async fetch() {
+        calls += 1;
+        return new Response(null, {
+          status: 302,
+          headers: { location: `/tool.zip?redirect=${calls}` },
+        });
+      },
+    }),
+    /redirect limit exceeded/,
+  );
+  assert.equal(calls, 5);
+  assert.deepEqual(fixture.delays, []);
+  assert.equal(existsSync(fixture.destination), false);
+});
+
+test("verifies cached artifacts without fetching or retrying", async (t) => {
+  const fixture = downloadFixture(t);
+  const options = {
+    sleep: fixture.sleep,
+    async fetch() { assert.fail("cached artifacts must not be fetched"); },
+  };
+  writeFileSync(fixture.destination, fixture.bytes);
+  await downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, options);
+  writeFileSync(fixture.destination, "invalid cached bytes");
+  await assert.rejects(
+    downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, options),
+    /Cached artifact failed integrity verification/,
+  );
+  assert.equal(existsSync(fixture.destination), false);
+  assert.deepEqual(fixture.delays, []);
+});
+
+test("applies the same retry and integrity checks to detached signatures", async (t) => {
+  const fixture = downloadFixture(t);
+  let calls = 0;
+  await downloadExact({
+    signatureUrl: "https://downloads.example.test/tool.tar.sign",
+    signatureSizeBytes: fixture.artifact.sizeBytes,
+    signatureSha256: fixture.artifact.sha256,
+  }, fixture.allowlist, fixture.destination, {
+    sleep: fixture.sleep,
+    async fetch(url) {
+      assert.equal(url, "https://downloads.example.test/tool.tar.sign");
+      calls += 1;
+      return calls === 1
+        ? new Response("temporarily unavailable", { status: 504 })
+        : new Response(fixture.bytes);
+    },
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(readFileSync(fixture.destination), fixture.bytes);
+  assert.deepEqual(fixture.delays, [1_000]);
 });
