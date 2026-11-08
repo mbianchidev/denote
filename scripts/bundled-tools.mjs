@@ -26,6 +26,7 @@ import {
   sep,
 } from "node:path";
 import { spawnSync } from "node:child_process";
+import { setTimeout } from "node:timers/promises";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { create, extract, list } from "tar";
@@ -39,6 +40,19 @@ const denoteVersion = JSON.parse(
   readFileSync(join(root, "package.json"), "utf8"),
 ).version;
 const MAX_REDIRECTS = 4;
+const MAX_DOWNLOAD_ATTEMPTS = 4;
+const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_NETWORK_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 const MAX_EXPANDED_BYTES = 512 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 30_000;
 const MAX_PACKAGED_TOOL_BYTES = 96 * 1024 * 1024;
@@ -290,23 +304,81 @@ function resolvedPathMetadata(label, path, stat) {
   }
 }
 
-async function downloadExact(artifact, allowlist, destination) {
+class RetryableDownloadError extends Error {}
+
+function isTransientNetworkError(error) {
+  return (
+    error?.name === "TimeoutError" ||
+    error?.name === "AbortError" ||
+    RETRYABLE_NETWORK_CODES.has(error?.code) ||
+    RETRYABLE_NETWORK_CODES.has(error?.cause?.code)
+  );
+}
+
+async function cancelDiscardedResponse(response, url) {
+  try {
+    await response.body?.cancel();
+  } catch (error) {
+    if (!isTransientNetworkError(error)) throw error;
+    console.warn(`Unable to cancel discarded download response for ${url}: ${error.message}`);
+  }
+}
+
+export async function downloadExact(
+  artifact,
+  allowlist,
+  destination,
+  { fetch: fetchArtifact = fetch, sleep = setTimeout } = {},
+) {
   mkdirSync(dirname(destination), { recursive: true });
   if (existsSync(destination)) {
     verifyArtifact(destination, artifact);
     return destination;
   }
+  const originalUrl = artifact.archiveUrl ?? artifact.signatureUrl;
+  for (let attempt = 1; ; attempt += 1) {
+    let bytes;
+    try {
+      bytes = await downloadBytes(artifact, allowlist, fetchArtifact);
+    } catch (error) {
+      const retryable =
+        error instanceof RetryableDownloadError ||
+        isTransientNetworkError(error);
+      if (!retryable) throw error;
+      const detail = error instanceof Error ? error.message : String(error);
+      if (attempt === MAX_DOWNLOAD_ATTEMPTS) {
+        throw new Error(
+          `Download failed after ${MAX_DOWNLOAD_ATTEMPTS} attempts for ${originalUrl}: ${detail}`,
+          { cause: error },
+        );
+      }
+      const delay = 1_000 * 2 ** (attempt - 1);
+      console.warn(
+        `Download attempt ${attempt}/${MAX_DOWNLOAD_ATTEMPTS} failed for ${originalUrl}: ${detail} Retrying in ${delay} ms.`,
+      );
+      await sleep(delay);
+      continue;
+    }
+    writeFileSync(destination, bytes);
+    verifyArtifact(destination, artifact);
+    return destination;
+  }
+}
+
+async function downloadBytes(artifact, allowlist, fetchArtifact) {
   let url = artifact.archiveUrl ?? artifact.signatureUrl;
+  const signal = AbortSignal.timeout(60_000);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     if (!redirectAllowed(url, allowlist)) {
       throw new Error(`Download host is not allowed: ${url}`);
     }
-    const response = await fetch(url, {
+    const response = await fetchArtifact(url, {
       redirect: "manual",
-      signal: AbortSignal.timeout(60_000),
+      signal,
       headers: { "user-agent": "Denote bundled-tools preparation" },
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
+      await cancelDiscardedResponse(response, url);
       const location = response.headers.get("location");
       if (!location || redirects === MAX_REDIRECTS) {
         throw new Error(`Download redirect limit exceeded for ${url}.`);
@@ -315,7 +387,11 @@ async function downloadExact(artifact, allowlist, destination) {
       continue;
     }
     if (!response.ok || !response.body) {
-      throw new Error(`Download failed for ${url}: HTTP ${response.status}.`);
+      await cancelDiscardedResponse(response, url);
+      const Failure = RETRYABLE_HTTP_STATUSES.has(response.status)
+        ? RetryableDownloadError
+        : Error;
+      throw new Failure(`Download failed for ${url}: HTTP ${response.status}.`);
     }
     const expectedSize = artifact.sizeBytes ?? artifact.signatureSizeBytes;
     const declaredSize = Number(response.headers.get("content-length") ?? 0);
@@ -324,6 +400,7 @@ async function downloadExact(artifact, allowlist, destination) {
       declaredSize &&
       declaredSize !== expectedSize
     ) {
+      await cancelDiscardedResponse(response, url);
       throw new Error(`Download size changed for ${url}.`);
     }
     const chunks = [];
@@ -338,9 +415,7 @@ async function downloadExact(artifact, allowlist, destination) {
     if (total !== expectedSize) {
       throw new Error(`Download size did not match the lock for ${url}.`);
     }
-    writeFileSync(destination, Buffer.concat(chunks));
-    verifyArtifact(destination, artifact);
-    return destination;
+    return Buffer.concat(chunks);
   }
   throw new Error(`Download could not be completed for ${url}.`);
 }
