@@ -205,7 +205,7 @@ normalized representation or write one back. Search and editable-document
 scans skip PDFs before reading their contents; PDF text search belongs to the
 bounded in-document reader, and vault-wide replace cannot target a PDF.
 
-The renderer pins `pdfjs-dist` 6.3.289 exactly. This reviewed release avoids
+The renderer pins `pdfjs-dist` 6.5.438 exactly. This reviewed release avoids
 the arbitrary-JavaScript-execution advisory affecting 5.6.83 through 5.7.x and
 supports Denote's Node.js build toolchain. The Apache-2.0 package is
 imported directly rather than through a React wrapper.
