@@ -129,10 +129,18 @@ copy. The release workflow also derives an ephemeral config copy from the tagged
 updater policy using its own reviewed workflow-tool revision. This lets a
 workflow-only repair retry an immutable release tag without changing the
 source commit or updater trust key.
-Platform code signing remains separate: release builds omit `--no-sign` only
-when updater provisioning is enabled so Tauri can create Minisign signatures.
-The workflow does not provide Apple Developer ID or Windows Authenticode
-credentials.
+Platform code signing remains separate. macOS release builds never use
+`--no-sign`: a workflow-revision helper preserves configured Apple signing
+identities/certificates and otherwise selects `-` for a complete ad-hoc
+signature. Tauri signs the assembled main app after copying resources and the
+independently signed speech helper, before creating disk images, updater
+archives, Minisign signatures, checksums, and attestations. Packaging verifies
+both apps' complete signatures, distinct entitlements, hardened runtime, and
+target architecture from the mounted disk image and extracted updater archive.
+Tool archives remain external and unchanged. Ad-hoc signatures do not establish
+Developer ID trust or notarization. Other platforms retain `--no-sign` when
+updater provisioning is disabled; the workflow provisions no Apple Developer ID
+or Windows Authenticode credentials.
 
 Bug reporting collects only recent user-visible error categories and sanitized
 summaries in a small in-memory ring. URL construction strips paths, usernames,
@@ -1920,7 +1928,17 @@ only the target integrity manifest and legal material. That manifest pins exact
 release-asset URLs, archive and executable bytes, and redirect hosts. `build.rs`
 anchors its digest into the native binary; preparation rejects combined tool
 assets above 96 MiB.
-GitHub tag metadata credentials are sent only to `https://api.github.com`.
+After exhausting transient failures for a canonical GitHub release URL,
+preparation may resolve the identical locked asset through the official API.
+Non-redirecting release metadata is capped at 1 MiB and must match the exact
+repository, tag, asset name, original browser URL, uploaded state, size, and
+published digest when present. Only the matching repository's numeric asset
+endpoint is accepted; bounded retries, approved redirects, byte size, SHA-256,
+and subsequent signature/attestation checks remain mandatory. Permanent or
+integrity failures never use this transport recovery. API failure remains a
+failure, not an unverified mirror or a changed immutable origin.
+GitHub metadata and asset API credentials are sent only to
+`https://api.github.com`, never a browser download URL or redirected CDN.
 Preparation prefers `GH_TOKEN`, then `GITHUB_TOKEN`, then the `github.com`
 credential stored by GitHub CLI, and uses anonymous access only when none is
 available.
@@ -1938,10 +1956,13 @@ the downloader. An interrupted or corrupted cache is reported explicitly and
 never causes fallback.
 
 Release jobs prepare the target assets and metadata before Tauri packaging.
-Matrix builds pass Tauri's `--no-sign` option only while updater provisioning is
-disabled. Enabled updater builds omit it so Tauri generates the required
-Minisign signatures; Apple Developer ID signing/notarization and Windows
-Authenticode remain unconfigured. The jobs still smoke-test tools from the
+Non-macOS builds pass Tauri's `--no-sign` option only while updater provisioning
+is disabled. macOS preserves configured Apple signing or selects complete
+ad-hoc signing independently of updater provisioning; the final app is signed
+before DMG/updater creation. Enabled updater builds generate the required
+Minisign signatures. Apple Developer ID signing/notarization and Windows
+Authenticode credentials remain unconfigured by default. The jobs still
+smoke-test tools from the
 installed Debian package, mounted DMG, or administrative MSI image, publish
 checksums, notices, SPDX SBOMs, the exact Git corresponding-source archive and
 signature, the on-demand target tool archives, and GitHub build-provenance and

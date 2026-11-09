@@ -41,6 +41,7 @@ const denoteVersion = JSON.parse(
 ).version;
 const MAX_REDIRECTS = 4;
 const MAX_DOWNLOAD_ATTEMPTS = 4;
+const MAX_GITHUB_METADATA_BYTES = 1024 * 1024;
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const RETRYABLE_NETWORK_CODES = new Set([
   "ECONNRESET",
@@ -328,18 +329,37 @@ export async function downloadExact(
   artifact,
   allowlist,
   destination,
-  { fetch: fetchArtifact = fetch, sleep = setTimeout } = {},
+  { fetch: fetchArtifact = fetch, sleep = setTimeout, loadGithubToken = githubApiToken } = {},
 ) {
   mkdirSync(dirname(destination), { recursive: true });
   if (existsSync(destination)) {
     verifyArtifact(destination, artifact);
     return destination;
   }
-  const originalUrl = artifact.archiveUrl ?? artifact.signatureUrl;
+  let bytes;
+  try {
+    bytes = await downloadWithRetries(artifact, allowlist, fetchArtifact, sleep);
+  } catch (error) {
+    if (!(error instanceof RetryableDownloadError)) throw error;
+    const request = githubReleaseAssetRequest(artifact.archiveUrl ?? artifact.signatureUrl);
+    if (!request) throw error;
+    console.warn(`${error.message} Resolving the same locked asset through the official GitHub asset API.`);
+    const token = loadGithubToken();
+    const url = await resolveGithubReleaseAsset(request, artifact, allowlist, fetchArtifact, token);
+    bytes = await downloadWithRetries(artifact, allowlist, fetchArtifact, sleep, { url, token });
+  }
+  writeFileSync(destination, bytes);
+  verifyArtifact(destination, artifact);
+  return destination;
+}
+
+async function downloadWithRetries(
+  artifact, allowlist, fetchArtifact, sleep, options = {},
+) {
+  const originalUrl = options.url ?? artifact.archiveUrl ?? artifact.signatureUrl;
   for (let attempt = 1; ; attempt += 1) {
-    let bytes;
     try {
-      bytes = await downloadBytes(artifact, allowlist, fetchArtifact);
+      return await downloadBytes(artifact, allowlist, fetchArtifact, options);
     } catch (error) {
       const retryable =
         error instanceof RetryableDownloadError ||
@@ -347,7 +367,7 @@ export async function downloadExact(
       if (!retryable) throw error;
       const detail = error instanceof Error ? error.message : String(error);
       if (attempt === MAX_DOWNLOAD_ATTEMPTS) {
-        throw new Error(
+        throw new RetryableDownloadError(
           `Download failed after ${MAX_DOWNLOAD_ATTEMPTS} attempts for ${originalUrl}: ${detail}`,
           { cause: error },
         );
@@ -359,14 +379,87 @@ export async function downloadExact(
       await sleep(delay);
       continue;
     }
-    writeFileSync(destination, bytes);
-    verifyArtifact(destination, artifact);
-    return destination;
   }
 }
 
-async function downloadBytes(artifact, allowlist, fetchArtifact) {
-  let url = artifact.archiveUrl ?? artifact.signatureUrl;
+function githubReleaseAssetRequest(url) {
+  const parsed = new URL(url);
+  const match = parsed.pathname.match(
+    /^\/([\w-]+)\/([\w.-]+)\/releases\/download\/([^/]+)\/([^/]+)$/,
+  );
+  if (
+    parsed.origin !== "https://github.com" || parsed.username || parsed.password ||
+    parsed.search || parsed.hash || !match || [".", ".."].includes(match[2])
+  ) return null;
+  const [, owner, repo, encodedTag, encodedName] = match;
+  return {
+    originalUrl: url,
+    repository: `${owner}/${repo}`,
+    tag: decodeURIComponent(encodedTag),
+    name: decodeURIComponent(encodedName),
+    metadataUrl: `https://api.github.com/repos/${owner}/${repo}/releases/tags/${encodeURIComponent(decodeURIComponent(encodedTag))}`,
+  };
+}
+
+function githubApiHeaders(token, accept) {
+  return {
+    accept,
+    "user-agent": "Denote bundled-tools preparation",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+async function resolveGithubReleaseAsset(request, artifact, allowlist, fetchArtifact, token) {
+  if (!redirectAllowed(request.metadataUrl, allowlist)) {
+    throw new Error(`Download host is not allowed: ${request.metadataUrl}`);
+  }
+  const response = await fetchArtifact(request.metadataUrl, {
+    redirect: "error",
+    signal: AbortSignal.timeout(30_000),
+    headers: githubApiHeaders(token, "application/vnd.github+json"),
+  });
+  if (!response.ok || !response.body) {
+    await cancelDiscardedResponse(response, request.metadataUrl);
+    throw new Error(`Unable to read GitHub release metadata for ${request.originalUrl}: HTTP ${response.status}.`);
+  }
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of response.body) {
+    total += chunk.byteLength;
+    if (total > MAX_GITHUB_METADATA_BYTES) {
+      throw new Error("GitHub release metadata exceeds the 1 MiB limit.");
+    }
+    chunks.push(Buffer.from(chunk));
+  }
+  let release;
+  try {
+    release = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    throw new Error(`Invalid GitHub release metadata for ${request.originalUrl}.`, { cause: error });
+  }
+  const matches = Array.isArray(release?.assets)
+    ? release.assets.filter((asset) => asset?.name === request.name)
+    : [];
+  const asset = matches.length === 1 ? matches[0] : null;
+  const expectedSize = artifact.sizeBytes ?? artifact.signatureSizeBytes;
+  const expectedHash = artifact.sha256 ?? artifact.signatureSha256;
+  if (
+    release?.tag_name !== request.tag || !asset ||
+    !Number.isSafeInteger(asset.id) || asset.id <= 0 ||
+    asset.state !== "uploaded" ||
+    asset.browser_download_url !== request.originalUrl ||
+    asset.url !== `https://api.github.com/repos/${request.repository}/releases/assets/${asset.id}` ||
+    asset.size !== expectedSize ||
+    (asset.digest != null && asset.digest !== `sha256:${expectedHash}`)
+  ) {
+    throw new Error(`GitHub release asset metadata does not match the lock for ${request.originalUrl}.`);
+  }
+  return asset.url;
+}
+
+async function downloadBytes(artifact, allowlist, fetchArtifact, options = {}) {
+  let url = options.url ?? artifact.archiveUrl ?? artifact.signatureUrl;
   const signal = AbortSignal.timeout(60_000);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     if (!redirectAllowed(url, allowlist)) {
@@ -375,7 +468,9 @@ async function downloadBytes(artifact, allowlist, fetchArtifact) {
     const response = await fetchArtifact(url, {
       redirect: "manual",
       signal,
-      headers: { "user-agent": "Denote bundled-tools preparation" },
+      headers: githubApiUrlAllowed(url)
+        ? githubApiHeaders(options.token, "application/octet-stream")
+        : { "user-agent": "Denote bundled-tools preparation" },
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       await cancelDiscardedResponse(response, url);
