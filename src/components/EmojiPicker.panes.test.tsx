@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { $getRoot, REDO_COMMAND, UNDO_COMMAND, type LexicalEditor } from "lexical";
 import { useState } from "react";
 import { expect, it, vi } from "vitest";
@@ -9,7 +9,7 @@ import { syntheticEmojiPicker } from "../lib/emoji.testFixtures";
 import { EmojiHostSurface } from "./EmojiPicker";
 import { MarkdownEditor } from "./MarkdownEditor";
 
-it("keeps exact-byte histories separate across panes and retains recents during delayed preference writes", async () => {
+function renderPanes() {
   const picker = syntheticEmojiPicker();
   const host = new EmojiHost();
   let focusedScope = "left";
@@ -63,32 +63,57 @@ it("keeps exact-byte histories separate across panes and retains recents during 
     });
     return editor;
   };
-  const left = await focus("left");
-  act(() => host.open(picker));
-  fireEvent.click(screen.getByRole("button", { name: "Insert Smiling face" }));
-  await waitFor(() => expect(changed.left).toHaveBeenLastCalledWith("__same😀__\n"));
-  expect(writes[0].value.recents).toEqual(["😀"]);
+  const insert = async (scope: "left" | "right", name: string) => {
+    const editor = await focus(scope);
+    act(() => host.open(picker));
+    const dialog = within(screen.getByRole("dialog", { name: picker.title }));
+    await act(async () => {
+      fireEvent.click(dialog.getByRole("button", { name: `Insert ${name}` }));
+    });
+    return editor;
+  };
+  return { host, picker, changed, writes, error, focus, insert };
+}
 
-  await focus("right");
-  act(() => host.open(picker));
-  fireEvent.click(screen.getByRole("button", { name: "Insert Technologist" }));
-  await waitFor(() => expect(changed.right).toHaveBeenLastCalledWith("**same🧑‍💻**\n"));
-  expect(writes[1].value.recents).toEqual(["🧑‍💻", "😀"]);
+it("keeps exact-byte histories separate across panes and dismisses a picker when focus changes", async () => {
+  const { host, picker, changed, writes, error, focus, insert } = renderPanes();
+  const left = await insert("left", "Smiling face");
+  expect(changed.left).toHaveBeenLastCalledWith("__same😀__\n");
+  await insert("right", "Technologist");
+  expect(changed.right).toHaveBeenLastCalledWith("**same🧑‍💻**\n");
   expect(changed.left).toHaveBeenLastCalledWith("__same😀__\n");
 
   await act(async () => writes[0].finish());
-  expect(host.preferences(picker).recents).toEqual(["🧑‍💻", "😀"]);
   await focus("left");
-  act(() => { left.dispatchCommand(UNDO_COMMAND, undefined); });
-  await waitFor(() => expect(changed.left).toHaveBeenLastCalledWith("__same__\n"));
+  await act(async () => { left.dispatchCommand(UNDO_COMMAND, undefined); });
+  expect(changed.left).toHaveBeenLastCalledWith("__same__\n");
   expect(changed.right).toHaveBeenLastCalledWith("**same🧑‍💻**\n");
-  act(() => { left.dispatchCommand(REDO_COMMAND, undefined); });
-  await waitFor(() => expect(changed.left).toHaveBeenLastCalledWith("__same😀__\n"));
+  await act(async () => { left.dispatchCommand(REDO_COMMAND, undefined); });
+  expect(changed.left).toHaveBeenLastCalledWith("__same😀__\n");
 
   act(() => host.open(picker));
-  act(() => { focusedScope = "right"; host.reconcile(); });
+  expect(screen.getByRole("dialog", { name: picker.title })).toBeVisible();
+  await focus("right");
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(writes).toHaveLength(2);
+  await act(async () => writes[1].finish());
+  expect(error).not.toHaveBeenCalled();
+});
+
+it("retains recents across panes while earlier preference writes are still pending", async () => {
+  const { host, picker, changed, writes, error, insert } = renderPanes();
+  await insert("left", "Smiling face");
+  expect(changed.left).toHaveBeenLastCalledWith("__same😀__\n");
+  expect(writes[0].value.recents).toEqual(["😀"]);
+
+  await insert("right", "Technologist");
+  expect(changed.right).toHaveBeenLastCalledWith("**same🧑‍💻**\n");
+  expect(changed.left).toHaveBeenLastCalledWith("__same😀__\n");
+  expect(writes).toHaveLength(2);
+  expect(writes[1].value.recents).toEqual(["🧑‍💻", "😀"]);
+
+  await act(async () => writes[0].finish());
+  expect(host.preferences(picker).recents).toEqual(["🧑‍💻", "😀"]);
   await act(async () => writes[1].finish());
   expect(host.preferences(picker).recents).toEqual(["🧑‍💻", "😀"]);
   expect(error).not.toHaveBeenCalled();

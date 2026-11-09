@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { build } from "vite";
 import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
-import { painted } from "./browser";
+import { painted, placeRichCaretAtEnd } from "./browser";
 
 let fixture = "";
 let errors: string[] = [];
@@ -51,15 +51,13 @@ test("Rich edits and autosave preserve literal equals signs, trailing spaces, ta
   await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
   const rich = page.getByRole("textbox", { name: "editable markdown", exact: true });
   await expect(rich).toBeVisible();
-  await rich.getByText("Edit here", { exact: true }).click();
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+  await placeRichCaretAtEnd(page, rich.getByText("Edit here", { exact: true }));
   await page.keyboard.type("!");
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
   await page.getByRole("radio", { name: "Source mode", exact: true }).click();
   await expect.poll(() => page.locator(".markdown-editor-shell .cm-content:visible .cm-line").allTextContents()).toEqual(`${source}!`.split("\n"));
   await page.getByRole("radio", { name: "Rich text", exact: true }).click();
-  await rich.getByText("Edit here!", { exact: true }).click();
-  await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
+  await placeRichCaretAtEnd(page, rich.getByText("Edit here!", { exact: true }));
   await page.keyboard.type(". ");
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!. `);
   await page.getByRole("radio", { name: "Source mode", exact: true }).click();
@@ -76,21 +74,7 @@ for (const marker of ["-", "+", "*"]) {
     await expect(italic).toHaveText("An invented italic sentence.");
     const item = page.getByRole("textbox", { name: "editable markdown", exact: true })
       .getByText("Second synthetic item", { exact: true });
-    await expect(async () => {
-      await item.click();
-      await page.keyboard.press(process.platform === "darwin" ? "Meta+ArrowRight" : "End");
-      await painted(page);
-      expect(await item.evaluate((element) => {
-        const owner = element.closest('[contenteditable="true"]');
-        const selection = window.getSelection();
-        if (document.activeElement !== owner || !selection?.isCollapsed ||
-            !selection.anchorNode || !element.contains(selection.anchorNode)) return false;
-        const prefix = document.createRange();
-        prefix.selectNodeContents(element);
-        prefix.setEnd(selection.anchorNode, selection.anchorOffset);
-        return prefix.toString() === element.textContent;
-      })).toBe(true);
-    }).toPass({ timeout: 5000 });
+    await placeRichCaretAtEnd(page, item);
     await page.keyboard.type("!");
     await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(`${source}!`);
     await page.keyboard.press("Enter");

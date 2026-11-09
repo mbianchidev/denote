@@ -127,6 +127,11 @@ modules with module-scope imports. Keep cold module transformation in test
 collection, outside timed hooks and UI interactions. Production loading remains
 lazy, and tests retain their normal interaction deadlines.
 
+The emoji pane regressions keep history/focus isolation and delayed preference
+writes in separate real-editor cases. Await insertion and undo/redo transactions
+through async `act`, and scope emoji-button queries to the picker dialog rather
+than both editor toolbars. Keep the normal five-second deadline and no retries.
+
 PDF-focused checks are:
 
 ```bash
@@ -186,6 +191,9 @@ finished loading. Selection-only preparation can retry within the existing
 five-second budget until the exact phrase stays selected after painting, using
 the same frame synchronization as the editor responsiveness checks. Typing and
 document mutations are never retried.
+Caret-at-end preparation uses the shared `placeRichCaretAtEnd` browser helper to
+verify that focus and the collapsed selection remain inside the intended text
+after painting before the one-time keyboard mutation.
 Marker coverage includes underscore italics/strong text, adjacent and nested
 mixed delimiters, all three unordered-list markers, task lists, explicit Source
 marker changes, and real keyboard continuation of each bullet style.
@@ -1485,6 +1493,13 @@ rustls-webpki, webpki-root-certs, and Tokio to compatible patched releases, and
 replaces yanked clipboard-win 5.4.1 with 5.4.3. No vulnerability-level findings
 remain in that audit.
 
+The 2026-11-09 refresh updates `rusqlite` to 0.41.1 and `libsqlite3-sys` to
+0.39.1, which bundles SQLite 3.54.1 and fixes
+[RUSTSEC-2026-0459](https://rustsec.org/advisories/RUSTSEC-2026-0459).
+Only those two lockfile records change; the Windows-safe Tauri family stays
+unchanged. The [rusqlite 0.41 release](https://github.com/rusqlite/rusqlite/releases/tag/v0.41.0)
+documents the bundled SQLite fix and API changes.
+
 The lockfile keeps `quinn-proto` at 0.11.19 to fix the advisories published on
 2026-10-12:
 [RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338),
@@ -1733,7 +1748,7 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-11-09**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-repairing macOS release signing. Official registry
+repairing the emoji pane regression timeout. Official crates.io API and registry
 records, upstream release notes and migration/backport trackers, and the RustSec
 snapshot linked below still show the same compatibility constraints.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
@@ -1742,13 +1757,13 @@ GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
 single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
 Official registry records, release notes, the
 linked upstream backport and D-Bus migration requests, and the
-[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/7a40350e1b8ba5b656d909f88222a8059a83d88d/crates)
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/d9cb059f3217db87aeccd190b81eaffe8cc29cb9/crates)
 confirm the constraints below. **A compatible notification-backend candidate
 is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
 same Rust 1.89 minimum as 4.18.2. Removing the notification backport still
 requires the source-aware audit, Linux delivery regressions, and all-platform
-checks; this signing change does not alter dependencies. The other six
+checks; this test repair retains the notification backport. The other six
 backports have no compatible published replacement: newer GTK/GLib types do
 not match GTK 0.18, Tauri utils 2.9.3 still requires URLPattern `^0.3`, and
 newer opener/single-instance plugins require Tauri `^2.12` while retaining
@@ -1827,8 +1842,10 @@ Published
 [notification 2.8.0](https://crates.io/crates/tauri-plugin-notification/2.8.0),
 [opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
 [single-instance 2.5.5](https://crates.io/crates/tauri-plugin-single-instance/2.5.5)
-require Tauri 2.12. Opener and single-instance still require zbus 5; notification
-uses notify-rust `^4.18`, which can now resolve the maintained 4.19.0 backend. The
+require Tauri 2.12. All three still require zbus 5 directly; notification
+also uses notify-rust `^4.18`, which can now resolve the maintained 4.19.0 backend.
+The notification replacement candidate above applies to the compatible 2.4.0
+package, not an upgrade to 2.8.0. The
 [notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.0),
 [opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
 and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.5)
@@ -1932,15 +1949,17 @@ Do not relabel crates or suppress advisories to bypass this dependency boundary.
 [zbus 6](https://github.com/z-galaxy/zbus/issues/2043) merges the deprecated
 wire/name crates into `zbus::wire` and `zbus::names`. A direct dependency bump
 cannot remove the older graph: the released Tauri opener and single-instance
-plugins, notify-rust, secret-service, and zbus-secret-service-keyring-store still
-require zbus 5. The coordinated
+plugins, notify-rust 4.18.2, secret-service, and zbus-secret-service-keyring-store
+still require zbus 5. The coordinated
 [Tauri plugin migration](https://github.com/tauri-apps/plugins-workspace/issues/3716)
 and [single-instance update](https://github.com/tauri-apps/plugins-workspace/pull/3759)
 remain open. The earlier
 [combined dependency update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
-was closed without merging; both
-[notify-rust's update](https://github.com/hoodie/notify-rust/pull/294) and
-[its newer migration](https://github.com/hoodie/notify-rust/pull/297) remain open.
+was closed without merging, as was
+[notify-rust's earlier update](https://github.com/hoodie/notify-rust/pull/294).
+[Its newer migration](https://github.com/hoodie/notify-rust/pull/297) merged and
+shipped in 4.19.0; the compatible notification-backend candidate still needs
+the validation documented above.
 Until compatible published clients or separately reviewed source backports are
 adopted together, keep those warnings visible and preserve the Windows-safe
 runtime family.
