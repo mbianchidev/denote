@@ -68,7 +68,7 @@ function renderPanes() {
     act(() => host.open(picker));
     const dialog = within(screen.getByRole("dialog", { name: picker.title }));
     await act(async () => {
-      fireEvent.click(dialog.getByRole("button", { name: `Insert ${name}`, exact: true }));
+      fireEvent.click(dialog.getByRole("button", { name: `Insert ${name}` }));
     });
     return editor;
   };
