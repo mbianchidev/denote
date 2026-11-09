@@ -352,10 +352,20 @@ interrupted response bytes. Retry warnings preserve the failure and attempt
 count. Permanent HTTP/TLS failures, disallowed redirects, and size or SHA-256
 violations fail immediately; retries never change the pinned artifact or bypass
 integrity checks.
-GitHub tag metadata uses `GH_TOKEN` or `GITHUB_TOKEN` when present, otherwise it
-reuses the token stored by `gh auth login` for `github.com`. Without a token it
-falls back to the anonymous API limit, so authenticate before release
-preparation.
+If all four attempts fail transiently for a canonical GitHub release URL,
+preparation logs the failure and resolves that same repository, tag, and asset
+through the official GitHub API. Release metadata is bounded to 1 MiB, cannot
+redirect, and must match the exact locked browser URL, filename, uploaded state,
+size, and published digest when present. Only that repository's numeric asset
+endpoint is accepted. Its download retains the same four-attempt deadline,
+redirect allowlist, locked size/SHA-256 checks, and subsequent signature or
+attestation verification. Metadata or API failures remain fatal; this is not a
+mirror, version fallback, or a change to any immutable origin.
+GitHub API metadata and asset requests use `GH_TOKEN` or `GITHUB_TOKEN` when
+present, otherwise they reuse the token stored by `gh auth login` for
+`github.com`. Without a token, preparation uses the anonymous API limit.
+Credentials are sent only to `https://api.github.com`, never the browser
+download URL or a redirected asset CDN.
 The generated `src-tauri/resources/tools/` and
 `src-tauri/target/bundled-tools/` trees are ignored and must not be committed.
 The resource tree contains only the anchored integrity manifest and legal

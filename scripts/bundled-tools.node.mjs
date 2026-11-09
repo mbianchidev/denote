@@ -626,3 +626,211 @@ test("applies the same retry and integrity checks to detached signatures", async
   assert.deepEqual(readFileSync(fixture.destination), fixture.bytes);
   assert.deepEqual(fixture.delays, [1_000]);
 });
+
+function githubDownloadFixture(t) {
+  const fixture = downloadFixture(t);
+  fixture.artifact.archiveUrl =
+    "https://github.com/example/tools/releases/download/v1.2.3/tool.zip";
+  fixture.allowlist = ["github.com", "api.github.com", "release-assets.githubusercontent.com"];
+  fixture.metadataUrl = "https://api.github.com/repos/example/tools/releases/tags/v1.2.3";
+  fixture.assetUrl = "https://api.github.com/repos/example/tools/releases/assets/42";
+  fixture.release = {
+    tag_name: "v1.2.3",
+    assets: [{
+      id: 42,
+      name: "tool.zip",
+      state: "uploaded",
+      browser_download_url: fixture.artifact.archiveUrl,
+      url: fixture.assetUrl,
+      size: fixture.artifact.sizeBytes,
+      digest: `sha256:${fixture.artifact.sha256}`,
+    }],
+  };
+  return fixture;
+}
+
+test("recovers a locked GitHub release asset through the official API", async (t) => {
+  const fixture = githubDownloadFixture(t);
+  const urls = [];
+  let apiDownloads = 0;
+  await downloadExact(fixture.artifact, fixture.allowlist, fixture.destination, {
+    sleep: fixture.sleep,
+    loadGithubToken: () => "synthetic-token",
+    async fetch(url, options) {
+      urls.push(url);
+      if (url === fixture.artifact.archiveUrl) {
+        assert.equal(options.headers.authorization, undefined);
+        return new Response("gateway timeout", { status: 504 });
+      }
+      if (url === fixture.metadataUrl) {
+        assert.equal(options.redirect, "error");
+        assert.equal(options.headers.authorization, "Bearer synthetic-token");
+        assert.equal(options.headers.accept, "application/vnd.github+json");
+        return Response.json(fixture.release);
+      }
+      if (url === fixture.assetUrl) {
+        assert.equal(options.redirect, "manual");
+        assert.equal(options.headers.authorization, "Bearer synthetic-token");
+        assert.equal(options.headers.accept, "application/octet-stream");
+        apiDownloads += 1;
+        return new Response(null, {
+          status: 302,
+          headers: {
+            location: `https://release-assets.githubusercontent.com/tool-${apiDownloads}`,
+          },
+        });
+      }
+      assert.equal(options.headers.authorization, undefined);
+      assert.equal(options.headers.accept, undefined);
+      return apiDownloads === 1
+        ? new Response("expired redirect", { status: 503 })
+        : new Response(fixture.bytes);
+    },
+  });
+  assert.deepEqual(urls, [
+    ...Array(4).fill(fixture.artifact.archiveUrl),
+    fixture.metadataUrl,
+    fixture.assetUrl,
+    "https://release-assets.githubusercontent.com/tool-1",
+    fixture.assetUrl,
+    "https://release-assets.githubusercontent.com/tool-2",
+  ]);
+  assert.deepEqual(fixture.delays, [1_000, 2_000, 4_000, 1_000]);
+  assert.deepEqual(readFileSync(fixture.destination), fixture.bytes);
+  assert.ok(fixture.warnings.some((warning) => /official GitHub asset API/.test(warning)));
+});
+
+test("supports anonymous GitHub API recovery without changing detached-signature checks", async (t) => {
+  const fixture = githubDownloadFixture(t);
+  fixture.release.assets[0].digest = null;
+  const artifact = {
+    signatureUrl: fixture.artifact.archiveUrl,
+    signatureSizeBytes: fixture.artifact.sizeBytes,
+    signatureSha256: fixture.artifact.sha256,
+  };
+  await downloadExact(artifact, fixture.allowlist, fixture.destination, {
+    sleep: fixture.sleep,
+    loadGithubToken: () => null,
+    async fetch(url, options) {
+      assert.equal(options.headers.authorization, undefined);
+      if (url === artifact.signatureUrl) return new Response(null, { status: 504 });
+      if (url === fixture.metadataUrl) return Response.json(fixture.release);
+      assert.equal(url, fixture.assetUrl);
+      return new Response(fixture.bytes);
+    },
+  });
+  assert.deepEqual(readFileSync(fixture.destination), fixture.bytes);
+});
+
+test("rejects mismatched GitHub API metadata before downloading an asset", async (t) => {
+  const mutations = [
+    ["tag", (release) => { release.tag_name = "v9.9.9"; }],
+    ["name", (release) => { release.assets[0].name = "other.zip"; }],
+    ["origin URL", (release) => { release.assets[0].browser_download_url += "?changed"; }],
+    ["API repository", (release) => {
+      release.assets[0].url = "https://api.github.com/repos/other/tools/releases/assets/42";
+    }],
+    ["size", (release) => { release.assets[0].size += 1; }],
+    ["digest", (release) => { release.assets[0].digest = `sha256:${"0".repeat(64)}`; }],
+    ["state", (release) => { release.assets[0].state = "new"; }],
+    ["asset ID", (release) => { release.assets[0].id = -1; }],
+    ["duplicate", (release) => { release.assets.push({ ...release.assets[0] }); }],
+  ];
+  for (const [name, mutate] of mutations) {
+    await t.test(name, async (t) => {
+      const fixture = githubDownloadFixture(t);
+      mutate(fixture.release);
+      await assert.rejects(downloadExact(
+        fixture.artifact, fixture.allowlist, fixture.destination, {
+          sleep: fixture.sleep,
+          loadGithubToken: () => "synthetic-token",
+          async fetch(url) {
+            if (url === fixture.artifact.archiveUrl) return new Response(null, { status: 504 });
+            assert.equal(url, fixture.metadataUrl);
+            return Response.json(fixture.release);
+          },
+        },
+      ), /GitHub release asset.*match the lock/);
+      assert.equal(existsSync(fixture.destination), false);
+    });
+  }
+});
+
+test("fails closed on unavailable, redirected, malformed, or oversized GitHub API metadata", async (t) => {
+  for (const failure of ["unavailable", "redirected", "malformed", "oversized"]) {
+    await t.test(failure, async (t) => {
+      const fixture = githubDownloadFixture(t);
+      await assert.rejects(downloadExact(
+        fixture.artifact, fixture.allowlist, fixture.destination, {
+          sleep: fixture.sleep,
+          loadGithubToken: () => null,
+          async fetch(url, options) {
+            if (url === fixture.artifact.archiveUrl) return new Response(null, { status: 504 });
+            assert.equal(url, fixture.metadataUrl);
+            assert.equal(options.redirect, "error");
+            if (failure === "unavailable") return new Response(null, { status: 403 });
+            if (failure === "redirected") return new Response(null, {
+              status: 302, headers: { location: "https://untrusted.example.test/metadata" },
+            });
+            if (failure === "malformed") return new Response("not JSON");
+            return new Response(Buffer.alloc(1024 * 1024 + 1, 32));
+          },
+        },
+      ), /GitHub release metadata/);
+      assert.equal(existsSync(fixture.destination), false);
+    });
+  }
+});
+
+test("does not use GitHub API recovery to hide permanent or integrity failures", async (t) => {
+  for (const failure of ["HTTP 404", "digest", "redirect"]) {
+    await t.test(failure, async (t) => {
+      const fixture = githubDownloadFixture(t);
+      let calls = 0;
+      await assert.rejects(downloadExact(
+        fixture.artifact, fixture.allowlist, fixture.destination, {
+          sleep: fixture.sleep,
+          loadGithubToken() { assert.fail("permanent failures must not read API credentials"); },
+          async fetch(url) {
+            calls += 1;
+            assert.equal(url, fixture.artifact.archiveUrl);
+            if (failure === "HTTP 404") return new Response(null, { status: 404 });
+            if (failure === "digest") return new Response(Buffer.alloc(fixture.bytes.length, 120));
+            return new Response(null, {
+              status: 302, headers: { location: "https://untrusted.example.test/tool.zip" },
+            });
+          },
+        },
+      ), /HTTP 404|integrity|host is not allowed/);
+      assert.equal(calls, 1);
+      assert.deepEqual(fixture.delays, []);
+      assert.equal(existsSync(fixture.destination), false);
+    });
+  }
+});
+
+test("bounds GitHub API recovery retries and still checks the locked bytes", async (t) => {
+  for (const failure of ["transient", "digest"]) {
+    await t.test(failure, async (t) => {
+      const fixture = githubDownloadFixture(t);
+      let calls = 0;
+      await assert.rejects(downloadExact(
+        fixture.artifact, fixture.allowlist, fixture.destination, {
+          sleep: fixture.sleep,
+          loadGithubToken: () => null,
+          async fetch(url) {
+            calls += 1;
+            if (url === fixture.artifact.archiveUrl) return new Response(null, { status: 504 });
+            if (url === fixture.metadataUrl) return Response.json(fixture.release);
+            assert.equal(url, fixture.assetUrl);
+            return failure === "transient"
+              ? new Response(null, { status: 504 })
+              : new Response(Buffer.alloc(fixture.bytes.length, 120));
+          },
+        },
+      ), failure === "transient" ? /after 4 attempts.*releases\/assets\/42.*HTTP 504/ : /integrity/);
+      assert.equal(calls, failure === "transient" ? 9 : 6);
+      assert.equal(existsSync(fixture.destination), false);
+    });
+  }
+});
