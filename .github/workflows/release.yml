@@ -278,6 +278,7 @@ jobs:
             scripts/release-assets.mjs
             scripts/release-checksums.mjs
             scripts/updater-release.mjs
+            scripts/macos-bundle.mjs
           sparse-checkout-cone-mode: false
 
       - name: Prepare bundled Git and GitHub CLI
@@ -309,6 +310,14 @@ jobs:
             src-tauri/tauri.release.conf.json \
             src-tauri/tauri.workflow.release.conf.json
 
+      - name: Configure macOS bundle signing
+        if: runner.os == 'macOS'
+        shell: bash
+        run: >-
+          node .release-workflow-tools/scripts/macos-bundle.mjs configure
+          "$GITHUB_WORKSPACE"
+          ${{ needs.validate.outputs.updater_enabled == 'true' && 'src-tauri/tauri.workflow.release.conf.json' || '' }}
+
       - name: Build bundles
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
@@ -319,7 +328,7 @@ jobs:
         with:
           args: >-
             --target ${{ matrix.target }}
-            ${{ needs.validate.outputs.updater_enabled != 'true' && '--no-sign' || '' }}
+            ${{ runner.os != 'macOS' && needs.validate.outputs.updater_enabled != 'true' && '--no-sign' || '' }}
             ${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.workflow.release.conf.json' || '' }}
           retryAttempts: 2
           uploadUpdaterJson: false
@@ -365,6 +374,15 @@ jobs:
           image="$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name '*.dmg' -print -quit)"
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$image"
           trap 'hdiutil detach "$mount"' EXIT
+          node .release-workflow-tools/scripts/macos-bundle.mjs verify \
+            "$mount/Denote.app" "${{ matrix.target }}"
+          if [[ "${{ needs.validate.outputs.updater_enabled }}" == "true" ]]; then
+            updater="${RUNNER_TEMP}/denote-updater"
+            mkdir "$updater"
+            tar -xzf "src-tauri/target/${{ matrix.target }}/release/bundle/macos/Denote.app.tar.gz" -C "$updater"
+            node .release-workflow-tools/scripts/macos-bundle.mjs verify \
+              "$updater/Denote.app" "${{ matrix.target }}"
+          fi
           root="$(find "$mount" -path "*/Contents/Resources/tools/${{ matrix.target }}" -type d -print -quit)"
           test -n "$root"
           test -z "$(find "$root" -maxdepth 1 -name '*.tar.gz' -print -quit)"

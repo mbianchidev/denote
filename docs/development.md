@@ -1721,9 +1721,9 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-08**.
+Last vendored-library check: **2026-11-09**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-fixing transient HTTP 504 failures in release preparation. Official registry
+repairing macOS release signing. Official registry
 records, upstream release notes and migration/backport trackers, and the RustSec
 snapshot linked below still show the same compatibility constraints.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
@@ -1732,11 +1732,17 @@ GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
 single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
 Official registry records, release notes, the
 linked upstream backport and D-Bus migration requests, and the
-[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/309392b18f6b17022f82c701f300433126901068/crates)
-confirm the constraints below. No compatible published replacement removes a
-local backport: newer GTK/GLib types do not match GTK 0.18, Tauri utils 2.9.3
-still requires URLPattern `^0.3`, and newer plugins require Tauri `^2.12`
-while retaining zbus 5 or notify-rust's default zbus 5 backend. The reviewed
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/7a40350e1b8ba5b656d909f88222a8059a83d88d/crates)
+confirm the constraints below. **A compatible notification-backend candidate
+is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
+zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
+same Rust 1.89 minimum as 4.18.2. Removing the notification backport still
+requires the source-aware audit, Linux delivery regressions, and all-platform
+checks; this signing change does not alter dependencies. The other six
+backports have no compatible published replacement: newer GTK/GLib types do
+not match GTK 0.18, Tauri utils 2.9.3 still requires URLPattern `^0.3`, and
+newer opener/single-instance plugins require Tauri `^2.12` while retaining
+zbus 5. The reviewed
 source fixes, visible GLib advisory, and Windows-safe runtime pins remain
 unchanged.
 The plugin requirements were checked in the official sparse records for
@@ -1757,15 +1763,16 @@ releases are listed below. RustSec has no direct entries
 for GLib macros, URLPattern, or the three Tauri plugins, so their affected
 macro-error, Unicode, and D-Bus dependencies were checked explicitly against
 the advisories below. The three plugins also publish 3.0.0-alpha.3,
-which requires Tauri 3 and still uses zbus 5, so it is not a compatible
-replacement. No compatible
-published replacement removes a local backport. The combined
+which requires Tauri 3, so it is not a compatible replacement. The combined
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 was closed without merging. The
-[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759),
-[notify-rust update](https://github.com/hoodie/notify-rust/pull/294), and
-[new notify-rust migration](https://github.com/hoodie/notify-rust/pull/297)
-remain open and unreleased. The latest `trybuild2` 1.3.0 additionally depends on
+[single-instance migration](https://github.com/tauri-apps/plugins-workspace/pull/3759)
+remains open and unreleased. The earlier
+[notify-rust update](https://github.com/hoodie/notify-rust/pull/294) was closed;
+the [replacement migration](https://github.com/hoodie/notify-rust/pull/297)
+merged on 2026-11-08 and shipped in
+[notify-rust 4.19.0](https://github.com/hoodie/notify-rust/releases/tag/v4.19.0).
+The latest `trybuild2` 1.3.0 additionally depends on
 unmaintained `basic-toml`
 ([RUSTSEC-2026-0374](https://rustsec.org/advisories/RUSTSEC-2026-0374));
 the local regression tooling uses maintained `trybuild` instead, with equivalent
@@ -1810,17 +1817,19 @@ Published
 [notification 2.8.0](https://crates.io/crates/tauri-plugin-notification/2.8.0),
 [opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
 [single-instance 2.5.5](https://crates.io/crates/tauri-plugin-single-instance/2.5.5)
-require Tauri 2.12 and still use zbus 5. The
+require Tauri 2.12. Opener and single-instance still require zbus 5; notification
+uses notify-rust `^4.18`, which can now resolve the maintained 4.19.0 backend. The
 [notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.0),
 [opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
 and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.5)
 do not provide compatible releases removing the D-Bus backports. The
 [upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
-is open; no compatible published plugin removes the local adapters.
-[notify-rust 4.18.2](https://crates.io/crates/notify-rust/4.18.2) also retains
-zbus 5 as its default Linux backend. Its existing libdbus backend and the
-maintained Secret Service store above are usable replacements and are selected
-locally. RustSec still marks the latest standalone
+is open. [notify-rust 4.18.2](https://crates.io/crates/notify-rust/4.18.2),
+retained in the lockfile, still defaults to zbus 5, whereas the newly published
+[4.19.0 registry record](https://index.crates.io/no/ti/notify-rust) requires
+zbus 6. The existing libdbus backend and maintained Secret Service store above
+remain selected locally until that migration is validated. RustSec still marks
+the latest standalone
 [`zvariant` 5.15.1](https://crates.io/crates/zvariant/5.15.1),
 [`zvariant_derive` 5.15.1](https://crates.io/crates/zvariant_derive/5.15.1), and
 [`zbus_names` 4.3.5](https://crates.io/crates/zbus_names/4.3.5) unmaintained;
@@ -2050,8 +2059,9 @@ its matching private key and password in GitHub Actions.
    cargo test --manifest-path src-tauri/Cargo.toml updater::tests
    ```
 
-When disabled, ordinary local and release desktop bundles remain unsigned and
-usable exactly as before; no updater artifacts or `latest.json` are published.
+When disabled, no updater artifacts or `latest.json` are published. macOS
+release bundles still receive complete code signatures independently of
+updater provisioning; other platforms retain their existing signing policy.
 When enabled, release jobs fail before building if either signing secret is
 missing, then use `src-tauri/tauri.release.conf.json` as the template for signed
 updater artifacts. Never rotate or replace the key without a separately
@@ -2062,10 +2072,39 @@ derives `src-tauri/tauri.workflow.release.conf.json` from the tagged
 keeps the updater key and application source tied to the immutable tag while a
 reviewed workflow-only fix can retry that tag.
 
-Release packaging passes Tauri's `--no-sign` option when updater provisioning
-is disabled. When it is enabled, the workflow omits that option so Tauri can
-generate updater Minisign signatures. Apple Developer ID
-signing/notarization and Windows Authenticode remain unconfigured. The jobs
+Release packaging passes Tauri's `--no-sign` option only on non-macOS platforms
+when updater provisioning is disabled. macOS always signs the complete app.
+Before building, `scripts/macos-bundle.mjs configure` checks the effective
+base, macOS, and updater-release configurations and existing Apple environment.
+It preserves a configured identity or complete certificate pair and otherwise
+exports `APPLE_SIGNING_IDENTITY=-` through the Actions environment. Incomplete
+certificate credentials fail rather than silently falling back. Any future
+Developer ID credentials must be available to this step as well as the build;
+do not override only the build with a certificate after selecting the fallback.
+The helper comes from the reviewed workflow revision, not the immutable release
+source. Tauri signs the final assembled main app, preserving the helper's
+separate signature and entitlement, before packaging the DMG and updater
+tarball. No post-packaging re-signing or updater-key change is needed.
+
+The existing macOS installer smoke runs on both release architectures and
+verifies `codesign --verify --deep --strict`, hardened runtime, exact main/helper
+entitlements, and architecture in the mounted read-only DMG and extracted
+updater archive. `scripts/macos-bundle.test.mjs` also packages synthetic ARM and
+Intel executables through the real pinned Tauri CLI, verifies both container
+formats, preserves the helper's bytes and tool metadata, and rejects resource
+tampering and the wrong main-app entitlement. Run the focused checks with:
+
+```bash
+npm exec --no -- vitest run scripts/macos-bundle.test.mjs \
+  scripts/release-workflow.test.mjs scripts/updater-release.test.mjs \
+  scripts/release-checksums.test.mjs
+```
+
+These macOS packaging fixtures require macOS, Clang, and the installed Tauri
+CLI; they never launch an app or use a real vault. Apple Developer ID
+signing/notarization and Windows Authenticode remain unconfigured by default.
+Ad-hoc signatures seal bundle contents but are not notarization or a Gatekeeper
+trust guarantee. The jobs
 still prepare and verify on-demand tool assets for each target, assert installed
 packages contain metadata but no tool or plugin archive, generate checksums and
 SPDX SBOMs, attest bundles and tool assets, and publish Git's corresponding
@@ -2081,7 +2120,8 @@ release tag commit.
 
 ### Sign and notarize a macOS build
 
-Unsigned downloads can make Gatekeeper report that `Denote.app` is damaged.
+Unsigned or incompletely signed downloads can make Gatekeeper report that
+`Denote.app` is damaged.
 Public macOS distribution should use an Apple **Developer ID Application**
 certificate and notarization rather than asking users to bypass quarantine.
 
@@ -2120,7 +2160,8 @@ certificate and notarization rather than asking users to bypass quarantine.
 
    Tauri signs the app and submits it for notarization when the signing identity
    and notarization variables are available. The current release workflow does
-   not provide those credentials, so CI artifacts are not platform-signed.
+   not provision those credentials, so it falls back to complete ad-hoc
+   signatures rather than producing unsigned or linker-only app bundles.
 
 5. Verify the resulting app and disk image:
 
@@ -2138,12 +2179,51 @@ store its base64 contents as `APPLE_CERTIFICATE`, store its password as
 `APPLE_CERTIFICATE_PASSWORD`, import it into a temporary keychain protected by
 `KEYCHAIN_PASSWORD`, and set `APPLE_SIGNING_IDENTITY` to the imported identity
 before the Tauri build. Store the App Store Connect values as encrypted secrets
-too. An ad-hoc local build can use `APPLE_SIGNING_IDENTITY="-"`, but it is not
-notarized and is not suitable for public downloads.
+too. Make the credentials available before **Configure macOS bundle signing**
+and keep them available for the build and speech-helper preparation. An ad-hoc
+local build can use `APPLE_SIGNING_IDENTITY="-"`. This is also the release
+fallback, but it does not provide Developer ID trust or notarization.
+Do not disable Gatekeeper or remove quarantine to make a signing check pass.
 
 See the official
 [Tauri macOS code-signing guide](https://v2.tauri.app/distribute/sign/macos/)
 for certificate creation and credential setup.
+
+### macOS deployment-target evidence
+
+The signing repair does not change supported deployment targets. Neither app
+configuration overrides Tauri's default `LSMinimumSystemVersion` of 10.13;
+that plist alone is insufficient to describe every executable's requirement.
+Read-only inspection of the checksum-verified
+[v0.14.0 release](https://github.com/mbianchidev/denote/releases/tag/v0.14.0)
+produced these Mach-O load-command minima:
+
+| Executable | Intel | Apple Silicon |
+| --- | --- | --- |
+| `Denote.app/Contents/MacOS/denote` | 10.13 | 11.0 |
+| Nested `denote-speech-worker` | 10.12 | 11.0 |
+| On-demand Git 2.55.0 and `git-credential-osxkeychain` | 26.0 | 26.0 |
+| On-demand GitHub CLI 2.99.0 | 12.0 | 12.0 |
+
+Both app plists require 10.13, so the helper's Intel 10.12 load command does not
+lower the base app's floor. ARM's actual 11.0 load command takes precedence over
+the default 10.13 plist. Use `otool -l <executable>` to inspect
+`LC_VERSION_MIN_MACOSX.version` or `LC_BUILD_VERSION.minos`, not the SDK version.
+The inspected DMGs were `Denote_0.14.0_x64.dmg` and
+`Denote_0.14.0_aarch64.dmg`; tool inputs were the four corresponding
+`denote-tools-<target>-{git,gh}.tar.gz` assets. Their bytes matched the release's
+architecture-specific `denote-macos-*-SHA256SUMS.txt` manifests and GitHub asset
+digests.
+
+Installers contain tool metadata, not tool archives or executables. The optional
+Bundled Git mode therefore has a higher current requirement than the base app:
+macOS 26 for those published tool assets. `scripts/bundled-tools.mjs` inherits
+the build environment's deployment target instead of pinning one, so a newer
+runner can raise this optional-tool requirement. These load commands establish
+build floors, not an old-macOS runtime certification. Do not silently raise the
+application's support contract or claim every optional feature works on 10.13
+from the plist default. Lowering the tool floor needs a separate compatibility
+change and new release assets, never replacement of published bytes.
 
 ## Extend core syntax highlighting
 

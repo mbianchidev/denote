@@ -129,10 +129,18 @@ copy. The release workflow also derives an ephemeral config copy from the tagged
 updater policy using its own reviewed workflow-tool revision. This lets a
 workflow-only repair retry an immutable release tag without changing the
 source commit or updater trust key.
-Platform code signing remains separate: release builds omit `--no-sign` only
-when updater provisioning is enabled so Tauri can create Minisign signatures.
-The workflow does not provide Apple Developer ID or Windows Authenticode
-credentials.
+Platform code signing remains separate. macOS release builds never use
+`--no-sign`: a workflow-revision helper preserves configured Apple signing
+identities/certificates and otherwise selects `-` for a complete ad-hoc
+signature. Tauri signs the assembled main app after copying resources and the
+independently signed speech helper, before creating disk images, updater
+archives, Minisign signatures, checksums, and attestations. Packaging verifies
+both apps' complete signatures, distinct entitlements, hardened runtime, and
+target architecture from the mounted disk image and extracted updater archive.
+Tool archives remain external and unchanged. Ad-hoc signatures do not establish
+Developer ID trust or notarization. Other platforms retain `--no-sign` when
+updater provisioning is disabled; the workflow provisions no Apple Developer ID
+or Windows Authenticode credentials.
 
 Bug reporting collects only recent user-visible error categories and sanitized
 summaries in a small in-memory ring. URL construction strips paths, usernames,

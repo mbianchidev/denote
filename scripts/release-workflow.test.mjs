@@ -8,9 +8,9 @@ const workflow = readFileSync(
 ).replace(/\r\n?/g, "\n");
 
 describe("release workflow", () => {
-  it("allows updater signing only when updater releases are enabled", () => {
+  it("keeps macOS code signing independent of updater provisioning", () => {
     expect(workflow).toContain(
-      "${{ needs.validate.outputs.updater_enabled != 'true' && '--no-sign' || '' }}",
+      "${{ runner.os != 'macOS' && needs.validate.outputs.updater_enabled != 'true' && '--no-sign' || '' }}",
     );
     expect(workflow).toContain(
       "${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.workflow.release.conf.json' || '' }}",
@@ -34,11 +34,13 @@ describe("release workflow", () => {
       "- name: Prepare updater signing configuration",
     );
     const buildBundles = buildJob.indexOf("- name: Build bundles");
+    const configureMacos = buildJob.indexOf("- name: Configure macOS bundle signing");
 
     expect(buildStart).toBeGreaterThan(-1);
     expect(toolsCheckout).toBeGreaterThan(-1);
     expect(prepareConfig).toBeGreaterThan(toolsCheckout);
-    expect(buildBundles).toBeGreaterThan(prepareConfig);
+    expect(configureMacos).toBeGreaterThan(prepareConfig);
+    expect(buildBundles).toBeGreaterThan(configureMacos);
     expect(
       buildJob.match(/- name: Check out release workflow tools/g),
     ).toHaveLength(1);
