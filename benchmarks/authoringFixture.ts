@@ -28,8 +28,14 @@ interface AuthoringFixtureState {
   externalLinks: string[];
   microphoneRequests: number;
   activeMicrophoneTracks: number;
+  releaseSpeech: () => void;
 }
-declare global { interface Window { __DENOTE_AUTHORING__: AuthoringFixtureState } }
+declare global {
+  interface Window {
+    __DENOTE_AUTHORING__: AuthoringFixtureState;
+    __DENOTE_DEFER_SPEECH__?: boolean;
+  }
+}
 
 const documents = {
   "Authoring.md": "# Local practice\n\nA short phrase for review.\n\n=red=Existing excerpt=red=\n\nKeep **this**, [a link](https://example.test/), and trailing spaces.  \n",
@@ -41,10 +47,15 @@ const documents = {
     "```javascript", "const example = 1;", "```", "", "![Synthetic circle](assets/circle.svg)", "",
   ].join("\n"),
 };
+const pendingSpeech: Array<() => void> = [];
 const state: AuthoringFixtureState = {
   documents, comments: { contentHash: "0".repeat(64), document: { schemaVersion: 1, owner: "denote.note-comments", notes: {} } },
   saves: [], unexpectedCommands: [], terminatedWorkers: 0, nativeFullscreen: false, commentReads: 0,
   audio: {}, credentialActions: [], speechActions: [], externalLinks: [], microphoneRequests: 0, activeMicrophoneTracks: 0,
+  releaseSpeech: () => {
+    window.__DENOTE_DEFER_SPEECH__ = false;
+    for (const resolve of pendingSpeech.splice(0)) resolve();
+  },
 };
 window.__DENOTE_AUTHORING__ = state;
 const microphoneTracks: MediaStreamTrack[] = [];
@@ -203,8 +214,12 @@ mockIPC((command, payload) => {
     };
     case "get_plugin_settings": return {};
     case "read_plugin_entrypoint": {
-      const code = sources.get(argument(payload, "pluginId"));
+      const pluginId = argument(payload, "pluginId");
+      const code = sources.get(pluginId);
       if (!code) throw new Error("Unknown synthetic plugin");
+      if (pluginId === speechManifest.id && window.__DENOTE_DEFER_SPEECH__) {
+        return new Promise<string>((resolve) => pendingSpeech.push(() => resolve(code)));
+      }
       return code;
     }
     case "disable_plugin": {

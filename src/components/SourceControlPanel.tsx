@@ -229,7 +229,6 @@ function WorkspaceRepositories({
           <li key={repository.repositoryId}>
             <button
               type="button"
-              aria-label={`Select ${repository.label} repository`}
               aria-pressed={repository.selected}
               disabled={busy || repository.selected}
               onClick={() =>
@@ -240,7 +239,8 @@ function WorkspaceRepositories({
                 )
               }
             >
-              <strong>{repository.label}</strong>
+              <span className="sr-only">Select repository:</span>{" "}
+              <strong>{repository.label}</strong>{" "}
               <span>
                 {repository.initialized
                   ? `${repository.branch ?? "Detached"} · ${repository.changes} change${repository.changes === 1 ? "" : "s"}`

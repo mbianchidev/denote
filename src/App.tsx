@@ -10759,7 +10759,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     );
     if ((authoringProviders.length || speechTool) && paneTab.encoding === "utf8" && /\.(md|markdown)$/i.test(paneTab.path) &&
         !paneTab.transient && !paneKanbanBoard && !paneStructuredViewer) {
-      return <AdvancedAuthoring key={`${workspace.vaultPath}:${pane.id}:${paneTab.path}:${paneTab.editorRevision}:${speechTool?.pluginId ?? "no-speech"}`}
+      return <AdvancedAuthoring key={`${workspace.vaultPath}:${pane.id}:${paneTab.path}:${paneTab.editorRevision}`}
         path={paneTab.path} source={paneTab.content} readOnly={paneReadOnly} active={pane.id === focusedPaneId && !workspaceLocked}
         providers={authoringProviders} lineEnding={paneTab.lineEnding} displaySettings={paneDisplaySettings}
         nativeFullscreen={nativeFullscreenHost.enter}

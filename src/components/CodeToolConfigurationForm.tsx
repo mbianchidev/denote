@@ -55,7 +55,7 @@ export function CodeToolConfigurationForm({ pluginId, kind, language, configurat
       <label htmlFor={`${id}-executable`}>Executable</label>
       <input id={`${id}-executable`} value={executable} readOnly aria-label={`${title} executable`} />
       <button type="button" className="secondary-button" disabled={busy}
-        aria-label={`Choose ${title} executable`} onClick={() => {
+        aria-label={`Choose executable for ${title}`} onClick={() => {
           setBusy(true); setError(null);
           void api.chooseCodeToolExecutable(pluginId).then((path) => { if (path) setExecutable(path); })
             .catch((caught) => setError(errorMessage(caught))).finally(() => setBusy(false));

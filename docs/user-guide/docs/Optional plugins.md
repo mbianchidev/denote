@@ -30,6 +30,10 @@ declared permissions, and then start it. Simply enabling a plugin must not edit
 your notes. Actions that change vault content require both your explicit action
 and write permission.
 
+Open or unlock a vault before enabling or updating a plugin that needs vault
+content. A lock during preparation cancels the attempt without starting a
+content worker. Metadata-only clocks can still run while a vault is locked.
+
 Turning a plugin off stops its isolated worker, removes its commands and views,
 and deletes its downloaded executable package, cached archive, staging content,
 and removal backups. Only its catalog listing remains for a later reinstall. It

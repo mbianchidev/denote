@@ -83,6 +83,45 @@ fn check_download_lifecycle(source: PackageSource) {
         let cache = TempDir::new().expect("isolated application cache");
         let manager = manager(entry.clone(), &data, &cache);
         let id = &entry.manifest.id;
+        let vault = data.path().join("vaults/synthetic");
+        let user_files: [(&str, &[u8]); 4] = [
+            ("Notes.md", b"# Invented note\n\nKeep these bytes.  \n"),
+            (
+                ".denote/note-comments.json",
+                br#"{"schemaVersion":1,"owner":"denote.note-comments","notes":{}}"#,
+            ),
+            (
+                ".denote/credentials.dncred",
+                b"synthetic opaque credential-container canary",
+            ),
+            ("assets/synthetic.wav", b"RIFF synthetic audio canary"),
+        ];
+        for (path, content) in user_files {
+            let path = vault.join(path);
+            std::fs::create_dir_all(path.parent().expect("synthetic parent"))
+                .expect("synthetic vault folder");
+            std::fs::write(path, content).expect("synthetic user content");
+        }
+        let assert_user_content = || {
+            for (path, content) in user_files {
+                assert_eq!(
+                    std::fs::read(vault.join(path)).expect("user content must survive"),
+                    content,
+                    "{id} changed or removed {path}"
+                );
+            }
+        };
+        let initial = &manager.list().expect("default plugin state")[0];
+        assert!(!initial.enabled, "{id} must be disabled by default");
+        assert_eq!(initial.status, "not-installed");
+        assert!(!manager.plugin_root(id).exists());
+        assert!(!cache.path().join("plugin-downloads").join(id).exists());
+        assert!(
+            manager.prepare(id, vec![]).is_err(),
+            "{id} must require its declared permissions before installation"
+        );
+        assert!(!manager.plugin_root(id).exists());
+        assert_user_content();
         if matches!(source, PackageSource::Staged) {
             let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
@@ -113,6 +152,14 @@ fn check_download_lifecycle(source: PackageSource) {
             manager
                 .commit_enable(&installed.transaction_id)
                 .expect("commit downloaded package");
+            assert_user_content();
+            manager
+                .storage_set(
+                    id,
+                    "synthetic-owned-record",
+                    serde_json::json!({"keep": true}),
+                )
+                .expect("owned plugin metadata");
             assert!(
                 !manager
                     .read_entrypoint(id)
@@ -123,6 +170,11 @@ fn check_download_lifecycle(source: PackageSource) {
             manager.disable(id, false, false).expect("disable");
             assert!(!manager.plugin_root(id).exists());
             assert!(!cache.path().join("plugin-downloads").join(id).exists());
+            assert_eq!(
+                manager.state().expect("retained state").storage[id]["synthetic-owned-record"],
+                serde_json::json!({"keep": true})
+            );
+            assert_user_content();
         }
 
         let mut previous = entry.clone();
@@ -173,6 +225,7 @@ fn check_download_lifecycle(source: PackageSource) {
                 Some("Synthetic activation failure".into()),
             )
             .expect("rollback update");
+        assert_user_content();
         assert!(manager.list().expect("plugins")[0].enabled);
         assert_eq!(
             manager.read_entrypoint(id).expect("restored entrypoint"),
@@ -187,7 +240,17 @@ fn check_download_lifecycle(source: PackageSource) {
             .expect("commit update");
         assert!(!manager.install_dir(&previous).exists());
         assert!(manager.install_dir(&entry).exists());
-        manager.disable(id, false, false).expect("final disable");
+        manager
+            .disable(id, true, false)
+            .expect("explicit data cleanup");
         assert!(!manager.plugin_root(id).exists());
+        assert!(
+            !manager
+                .state()
+                .expect("cleared state")
+                .storage
+                .contains_key(id)
+        );
+        assert_user_content();
     }
 }

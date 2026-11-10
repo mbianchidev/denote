@@ -78,10 +78,18 @@ Enablement is transactional and orchestrated by `usePlugins`:
 5. activate and track every disposable registration;
 6. mark the plugin enabled only after activation succeeds.
 
+Content-dependent plugins require an open, unlocked vault before enablement or
+update. The host checks again after package preparation and worker startup;
+locking during either stage rolls back the attempt. A previous content worker
+is not restarted into a locked vault. Metadata-only clocks remain available.
+
 Activation failure runs registered cleanup in reverse order, unloads the
 runtime, and removes the downloaded package. Disabling calls the plugin's
 deactivation hook, disposes registrations, unloads execution, and deletes the
 package even when an earlier cleanup step fails.
+Enabling or disabling an unrelated tool must not remount another plugin's
+open view. Resource-owning child tools keep their own provider and vault
+identity so their cleanup does not discard an active presentation or editor.
 
 The native host downloads HTTPS artifacts into application cache, enforces the
 catalog byte count and SHA-256 digest, rejects links and traversal during
@@ -1405,6 +1413,39 @@ The initial catalog is first-party only. A plugin artifact is publishable when:
 retain the API major version. Breaking context, manifest, lifecycle, or
 capability changes increment `compatibility.apiVersion`, document migration,
 and keep the prior host contract for a stated deprecation window before removal.
+
+### Definition of done for every plugin
+
+Apply these gates to each actual catalog version, not just the shared host or
+a representative package:
+
+- Disabled by default; initial code download and execution follow explicit
+  enablement and permission approval. Automatic updates need their separate
+  opt-in and cannot broaden permissions.
+- Activation alone never changes user-authored vault content.
+- Every operation uses only declared, currently approved host capabilities.
+- Locked and encrypted states have explicit behavior; unavailable operations
+  explain why, and no encryption material crosses the plugin boundary.
+- Failures remain actionable, with retry, rollback, disable and recovery
+  controls appropriate to the operation.
+- Complete keyboard operation, accessible names, focus, status and errors are
+  verified for management and active feature surfaces.
+- The exact package has its versioned in-app guide; declarative settings exist
+  only for meaningful configuration.
+- Builds, behavioral tests, lifecycle, compatibility, integrity, dependency,
+  accessibility and documentation gates pass.
+- Disablement unregisters contributions, terminates execution, releases owned
+  resources and removes downloaded executable packages and caches.
+- Removal preserves user-authored notes, annotations, audio and credential
+  documents. Explicit data cleanup remains separate from executable removal.
+
+The staged native lifecycle gate checks every current archive, including
+default state, denied unapproved installation, repeated enable/disable,
+failed-update rollback and byte-exact user-data retention. The catalog-driven
+browser journey uses every real compiled worker, explicit keyboard approval,
+failed-install recovery, active surface accessibility and worker termination.
+These checks do not replace the manual screen-reader, platform installation
+and encrypted-state qualification required for a release candidate.
 
 ### API 1 freeze and deprecation policy
 

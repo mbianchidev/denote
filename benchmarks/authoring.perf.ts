@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { build } from "vite";
 import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
 import { painted, placeRichCaretAtEnd } from "./browser";
+import speechManifest from "../plugins/speech/plugin.json" with { type: "json" };
 
 let fixture = "";
 let errors: string[] = [];
@@ -241,6 +242,28 @@ test("the grey sidebar badge follows only the active note's open comments", asyn
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   await expect(comments).toHaveCount(0);
   expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(original);
+});
+
+test("late speech activation and removal preserve an already open presentation", async ({ page }) => {
+  await page.addInitScript(() => { window.__DENOTE_DEFER_SPEECH__ = true; });
+  await page.reload();
+  await page.getByRole("button", { name: "Deck.md", exact: true }).click();
+  const original = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"]);
+  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
+
+  await page.evaluate(() => window.__DENOTE_AUTHORING__.releaseSpeech());
+  await expect(page.locator(".activity-rail").getByRole("button", { name: "Speech", exact: true })).toBeVisible();
+  await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Open settings", exact: true }).click();
+  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  const card = page.locator(".plugin-card").filter({ has: page.getByText(speechManifest.name, { exact: true }) });
+  await card.locator("summary").first().click();
+  await card.getByRole("button", { name: "Disable and remove code", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"])).toBe(original);
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.saves)).toEqual([]);
 });
 
 test("overview preserves unknown frontmatter and disabling a live provider releases its worker", async ({ page }) => {

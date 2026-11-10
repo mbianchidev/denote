@@ -340,6 +340,9 @@ credentials retain their own established icons. The same glyph follows each
 view into **Organize plugins**, including hidden entries; names, keyboard
 controls and focus remain authoritative. Icons use current-color 19px strokes
 at the rail and never render downloaded SVG or executable plugin UI.
+Plugin-group toggles retain a 24px minimum target with every tool visible.
+Source-control repository and branch controls include their visible labels and
+state in their accessible names.
 File rows, tabs, and outline entries share compact hover and selected states.
 Plugin source-control providers receive distinct, named rail buttons without
 becoming static sidebar views. Their host-rendered sidebar starts with a compact

@@ -1,10 +1,10 @@
-import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { build } from "vite";
 import { assertValidPluginCatalogEntry } from "@denote/plugin-sdk";
 import catalogJson from "../plugins/catalog.json" with { type: "json" };
 import type { PluginView } from "../src/types";
 import { THEME_STORAGE_KEY } from "../src/lib/theme";
+import { auditAccessibility as audit } from "./accessibility";
 
 const plugins: PluginView[] = catalogJson.map((value) => {
   const catalog: unknown = value;
@@ -26,16 +26,6 @@ test.beforeAll(async () => {
   if (!chunk || chunk.type !== "chunk") throw new Error("Missing accessibility fixture.");
   fixture = chunk.code;
 });
-
-async function audit(page: Page, info: TestInfo, name: string, selector?: string): Promise<void> {
-  let builder = new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"]);
-  if (selector) builder = builder.include(selector);
-  const result = await builder.analyze();
-  await info.attach(name, { body: JSON.stringify(result, null, 2), contentType: "application/json" });
-  expect(result.violations.map((violation) => ({
-    id: violation.id, help: violation.help, targets: violation.nodes.map((node) => node.target),
-  }))).toEqual([]);
-}
 
 for (const variant of [
   { name: "dark desktop", theme: "dark", width: 1440, height: 1000 },

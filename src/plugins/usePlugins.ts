@@ -458,6 +458,11 @@ export function usePlugins(
         : "Plugin startup policy is unavailable. Restart Denote before enabling plugins.");
     }
   }, []);
+  const assertContentAvailable = useCallback((permissions: readonly PluginPermissionRequest[]) => {
+    if (!contentAvailableRef.current && permissionsRequireContent(permissions)) {
+      throw new Error("Open or unlock a vault before enabling this plugin.");
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -562,7 +567,7 @@ export function usePlugins(
           if (cancelled || !startsAllowedRef.current) {
             break;
           }
-          if (!contentAvailableRef.current && requiresContent(plugin)) {
+          if (!contentAvailableRef.current && permissionsRequireContent(plugin.approvedPermissions)) {
             continue;
           }
           try {
@@ -628,7 +633,7 @@ export function usePlugins(
         if (
           cancelled ||
           !plugin.enabled ||
-          !requiresContent(plugin) ||
+          !permissionsRequireContent(plugin.approvedPermissions) ||
           busyPluginIds.has(plugin.catalog.manifest.id) ||
           pluginOperationsRef.current.has(plugin.catalog.manifest.id)
         ) {
@@ -754,6 +759,7 @@ export function usePlugins(
         if (current.enabled && !updating) {
           throw new Error(`Plugin ${pluginId} is already enabled.`);
         }
+        assertContentAvailable(current.catalog.manifest.permissions);
         let previousRuntimeStopped = false;
         let runtimeStarted = false;
         let transactionId: string | null = null;
@@ -781,11 +787,13 @@ export function usePlugins(
           if (!runtime) {
             throw new Error("Plugin runtime is unavailable.");
           }
+          assertContentAvailable(approvedPermissions);
           await runtime.start({
             ...prepared,
             approvedPermissions,
           });
           runtimeStarted = true;
+          assertContentAvailable(approvedPermissions);
           if (!runtime.isRunning(pluginId)) {
             throw new Error(`Plugin ${pluginId} stopped before enablement completed.`);
           }
@@ -820,7 +828,8 @@ export function usePlugins(
                 (plugin) =>
                   plugin.catalog.manifest.id === pluginId && plugin.enabled,
               );
-              if (previous) {
+              if (previous && (contentAvailableRef.current ||
+                  !permissionsRequireContent(previous.approvedPermissions))) {
                 await runtimeRef.current?.start(previous);
               }
             } catch (restartError) {
@@ -844,7 +853,7 @@ export function usePlugins(
         }
       });
     },
-    [assertStartupAllowed, plugins, refresh, reportError, withBusy],
+    [assertContentAvailable, assertStartupAllowed, plugins, refresh, reportError, withBusy],
   );
 
   const prepareTimeTrackingDisable = useCallback(async (pluginIds: string[]) => {
@@ -1562,9 +1571,9 @@ export function usePlugins(
   };
 }
 
-function requiresContent(plugin: PluginView): boolean {
-  const hasClocks = plugin.approvedPermissions.some((permission) => permission.capability === "clocks");
-  return plugin.approvedPermissions.some((permission) =>
+function permissionsRequireContent(permissions: readonly PluginPermissionRequest[]): boolean {
+  const hasClocks = permissions.some((permission) => permission.capability === "clocks");
+  return permissions.some((permission) =>
     (permission.capability === "time-tracking" && !hasClocks) ||
     ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence", "tooling", "terminal", "text-styling", "note-comments", "presentation", "speech", "credential-store"].includes(
       permission.capability,

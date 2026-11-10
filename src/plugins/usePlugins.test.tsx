@@ -15,7 +15,7 @@ import type {
   PluginTaskListContribution,
   PluginClockContribution,
 } from "./workerRuntime";
-import type { PluginView } from "../types";
+import type { InstalledPlugin, PluginView } from "../types";
 import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
 
@@ -327,6 +327,98 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it.each([
+    "denote.json-yaml-viewer", "denote.mermaid", "denote.kanban", "denote.note-graph",
+    "denote.calendar", "denote.task-lists", "denote.code-intelligence",
+    "denote.text-styling", "denote.note-comments", "denote.presentations",
+    "denote.speech", "denote.credential-store", "denote.linter", "denote.compiler", "denote.terminal",
+  ])("requires an unlocked vault before manually enabling %s", async (id) => {
+    const entry: unknown = catalogJson.find((entry) => entry.manifest.id === id);
+    assertValidPluginCatalogEntry(entry);
+    const plugin = makePlugin({ catalog: entry, enabled: false, approvedPermissions: [] });
+    const { result } = await mountReady([plugin], null, "/synthetic/encrypted-vault", false);
+
+    await expect(result.current.enable(id, entry.manifest.permissions))
+      .rejects.toThrow("Open or unlock a vault before enabling this plugin.");
+
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+  });
+
+  it("rolls back a prepared content plugin when the vault locks before its worker starts", async () => {
+    const entry: unknown = catalogJson.find((entry) => entry.manifest.id === "denote.speech");
+    assertValidPluginCatalogEntry(entry);
+    const plugin = makePlugin({ catalog: entry, enabled: false, approvedPermissions: [] });
+    const rendered = await mountReady([plugin]);
+    let finishPreparation: (installation: InstalledPlugin) => void = () => {};
+    vi.mocked(api.preparePluginEnable).mockReturnValueOnce(new Promise((resolve) => {
+      finishPreparation = resolve;
+    }));
+    let result: Promise<unknown> = Promise.resolve();
+    act(() => {
+      result = rendered.result.current.enable(entry.manifest.id, entry.manifest.permissions)
+        .then(() => null, (error: unknown) => error);
+    });
+    await waitFor(() => expect(api.preparePluginEnable).toHaveBeenCalledOnce());
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-alpha", currentContentAvailable: false,
+    });
+    queueListPlugins([{ ...plugin, approvedPermissions: entry.manifest.permissions }]);
+    queueListPlugins([plugin]);
+    await act(async () => finishPreparation({
+      pluginId: entry.manifest.id, version: entry.manifest.version,
+      entrypoint: entry.manifest.entrypoint, transactionId: "synthetic-locked-preparation",
+    }));
+
+    expect(await result).toMatchObject({ message: "Open or unlock a vault before enabling this plugin." });
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.commitPluginEnable).not.toHaveBeenCalled();
+    expect(api.rollbackPluginEnable).toHaveBeenCalledWith(
+      "synthetic-locked-preparation", "Open or unlock a vault before enabling this plugin.",
+    );
+  });
+
+  it("stops a replacement worker and retains the previous package without restarting it into a locked vault", async () => {
+    const entry: unknown = catalogJson.find((entry) => entry.manifest.id === "denote.speech");
+    assertValidPluginCatalogEntry(entry);
+    const plugin = makePlugin({
+      catalog: entry, enabled: true, status: "update-available", approvedPermissions: entry.manifest.permissions,
+    });
+    const rendered = await mountReady([plugin]);
+    const runtime = runtimeInstances[0];
+    let finishStartup: () => void = () => {};
+    runtime.start.mockImplementationOnce(async () => {
+      runtime.running = true;
+      await new Promise<void>((resolve) => { finishStartup = resolve; });
+    });
+    vi.mocked(api.preparePluginEnable).mockResolvedValueOnce({
+      pluginId: entry.manifest.id, version: entry.manifest.version,
+      entrypoint: entry.manifest.entrypoint, transactionId: "synthetic-locked-update",
+    });
+    queueListPlugins([plugin]);
+    queueListPlugins([plugin]);
+    let result: Promise<unknown> = Promise.resolve();
+    act(() => {
+      result = rendered.result.current.enable(entry.manifest.id, entry.manifest.permissions)
+        .then(() => null, (error: unknown) => error);
+    });
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledTimes(2));
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-alpha", currentContentAvailable: false,
+    });
+    await act(async () => finishStartup());
+
+    expect(await result).toMatchObject({ message: "Open or unlock a vault before enabling this plugin." });
+    expect(runtime.running).toBe(false);
+    expect(runtime.stop).toHaveBeenCalledTimes(2);
+    expect(runtime.start).toHaveBeenCalledTimes(2);
+    expect(api.commitPluginEnable).not.toHaveBeenCalled();
+    expect(api.rollbackPluginEnable).toHaveBeenCalledWith(
+      "synthetic-locked-update", "Open or unlock a vault before enabling this plugin.",
+    );
+    expect(rendered.result.current.plugins[0].enabled).toBe(true);
+  });
+
   it.each(["resolved", "rejected"] as const)(
     "ignores a %s startup-policy response from an obsolete controller",
     async (outcome) => {

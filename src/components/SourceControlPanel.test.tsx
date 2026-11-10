@@ -142,7 +142,7 @@ describe("SourceControlPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("topic · 3 changes")).toBeInTheDocument();
     await user.click(
-      screen.getByRole("button", { name: "Select Notes vault repository" }),
+      screen.getByRole("button", { name: "Select repository: Notes vault main · 0 changes" }),
     );
     expect(onAction).toHaveBeenCalledWith({
       id: "select-workspace-repository",
@@ -387,7 +387,7 @@ describe("SourceControlPanel", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Branch: none" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Select branch" })).toBeDisabled();
     await user.click(
       screen.getByRole("button", { name: "Initialize repository" }),
     );

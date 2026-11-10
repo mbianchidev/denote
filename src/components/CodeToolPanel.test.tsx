@@ -42,7 +42,7 @@ describe("CodeToolPanel", () => {
     await screen.findByRole("checkbox", { name: "Enable language server" });
     expect(execute).not.toHaveBeenCalled();
     await user.click(screen.getByRole("checkbox", { name: "Enable language server" }));
-    await user.click(screen.getByRole("button", { name: "Choose language server executable" }));
+    await user.click(screen.getByRole("button", { name: "Choose executable for language server" }));
     await user.click(screen.getByRole("button", { name: "Save and approve language server" }));
     await waitFor(() => expect(api.saveCodeToolConfiguration).toHaveBeenCalledWith(
       "denote.synthetic", expect.objectContaining({ projectId: "project-example" }), "lsp",

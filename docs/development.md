@@ -86,7 +86,7 @@ execution. Checkout credentials are not retained.
 npm run check:secrets
 npm run check:plugin-api
 npm run build
-npm exec --no -- playwright test benchmarks/accessibility.perf.ts
+npm exec --no -- playwright test benchmarks/accessibility.perf.ts benchmarks/pluginLifecycle.perf.ts
 npm run package:plugins
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
   staged_catalog_packages_complete_native_lifecycle -- --ignored
@@ -108,6 +108,12 @@ all catalog cards, permission review, guides and settings, keyboard recovery,
 and native-startup safe-mode behavior in dark and light/compact layouts. It
 retains axe's complete results, including checks that need human review.
 Passing automation is not screen-reader or native-webview certification.
+The catalog-wide lifecycle journey starts every real compiled worker through
+keyboard permission approval, recovers a failed installation, checks every
+available activity-rail surface in dark and light, confirms clock shutdown,
+and verifies worker termination without note, annotation, or audio changes.
+Its native IPC is synthetic; the separate staged native gate verifies the real
+archives, installation and filesystem cleanup on each CI platform.
 Before qualifying a release candidate, separately record VoiceOver on macOS,
 NVDA on Windows, Orca on Linux, 200% zoom/text scaling, forced colors, focus
 visibility/obscuration, and the populated feature surfaces not covered by the
@@ -116,7 +122,10 @@ automated journeys.
 The staged native lifecycle gate verifies every candidate archive against its
 catalog size and digest, then uses the isolated debug-only local adapter to
 exercise repeated enable/disable, update, rollback and retry without publishing
-assets or changing the production downloader. CI runs it on all three platforms.
+assets or changing the production downloader. It also checks default-disabled
+state, denied unapproved installation, retained plugin metadata, and exact
+note/comment/audio/credential-canary bytes after each transition. CI runs it on
+all three platforms.
 The separate `published_catalog_downloads_complete_native_lifecycle` and
 `source_pinned_downloads_complete_native_lifecycle` tests require published
 network origins. Run them explicitly with `--ignored` only against a published
