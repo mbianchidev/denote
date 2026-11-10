@@ -8,7 +8,10 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use super::sandbox::current_platform;
 use super::{
-    catalog::{catalog_fingerprint, compatibility_error, validate_bundles, validate_catalog},
+    catalog::{
+        catalog_fingerprint, compatibility_error, compatibility_error_for_host, validate_bundles,
+        validate_catalog,
+    },
     package::validate_plugin_download_url,
     sandbox::{enforce_storage_quota, host_matches},
     settings::{migrate_settings, validate_settings},
@@ -24,6 +27,21 @@ pub(super) fn catalog() -> PluginCatalogEntry {
     serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON)
         .expect("catalog")
         .remove(0)
+}
+
+#[test]
+fn every_catalog_plugin_supports_api_one_hosts_throughout_denote_one_x() {
+    let entries: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON).expect("catalog");
+    for host in ["1.0.0-rc.1", "1.0.0", "1.42.0"] {
+        for entry in &entries {
+            assert_eq!(
+                compatibility_error_for_host(entry, host),
+                None,
+                "{} on Denote {host}",
+                entry.manifest.id,
+            );
+        }
+    }
 }
 
 #[test]

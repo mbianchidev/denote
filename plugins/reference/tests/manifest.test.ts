@@ -218,10 +218,10 @@ describe("plugin manifest validation", () => {
       reason: expect.stringMatching(/plugin api version 1/i),
     });
     expect(
-      checkPluginCompatibility(referenceManifest, "1.0.0", 1),
+      checkPluginCompatibility(referenceManifest, "2.0.0", 1),
     ).toMatchObject({
       compatible: false,
-      reason: expect.stringMatching(/below 1.0.0/i),
+      reason: expect.stringMatching(/below 2.0.0/i),
     });
   });
 

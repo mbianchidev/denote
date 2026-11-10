@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.calendar",
   "name": "Calendar and daily notes",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Browse daily notes and separate calendars for ordinary notes created or last updated.",
   "publisher": {
     "name": "Denote",
@@ -15,7 +15,7 @@
   "compatibility": {
     "apiVersion": 1,
     "minimumDenoteVersion": "0.6.0",
-    "maximumDenoteVersion": "1.0.0"
+    "maximumDenoteVersion": "2.0.0"
   },
   "permissions": [{ "capability": "calendar" }],
   "entrypoint": "dist/index.js",

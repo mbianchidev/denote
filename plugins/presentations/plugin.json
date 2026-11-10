@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.presentations",
   "name": "Markdown presentation slides",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Author and present ordinary Markdown decks with synchronized preview and local autoplay.",
   "publisher": {
     "name": "Denote",
@@ -15,7 +15,7 @@
   "compatibility": {
     "apiVersion": 1,
     "minimumDenoteVersion": "0.10.0",
-    "maximumDenoteVersion": "1.0.0"
+    "maximumDenoteVersion": "2.0.0"
   },
   "permissions": [{ "capability": "presentation" }],
   "entrypoint": "dist/index.js",

@@ -408,6 +408,13 @@ pub(crate) fn catalog_fingerprint(catalog: &PluginCatalogEntry) -> AppResult<Str
 }
 
 pub(crate) fn compatibility_error(catalog: &PluginCatalogEntry) -> Option<String> {
+    compatibility_error_for_host(catalog, env!("CARGO_PKG_VERSION"))
+}
+
+pub(super) fn compatibility_error_for_host(
+    catalog: &PluginCatalogEntry,
+    host_version: &str,
+) -> Option<String> {
     let manifest = &catalog.manifest;
     if let Some(revocation) = &catalog.revoked {
         return Some(format!(
@@ -431,7 +438,7 @@ pub(crate) fn compatibility_error(catalog: &PluginCatalogEntry) -> Option<String
             manifest.id, manifest.compatibility.api_version, PLUGIN_API_VERSION
         ));
     }
-    let host = match Version::parse(env!("CARGO_PKG_VERSION")) {
+    let host = match Version::parse(host_version) {
         Ok(version) => version,
         Err(error) => {
             return Some(format!("Denote has an invalid host version: {error}."));
