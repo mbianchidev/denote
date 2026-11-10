@@ -397,7 +397,9 @@ dependencies.
 
 Startup safe mode is an immutable native manager policy captured from
 `--safe-mode`, not a URL or downloaded-plugin setting. The renderer reads it
-before restoring workers; native authorization also refuses entrypoint reads,
+before restoring workers. Obsolete startup-policy and catalog responses cannot
+recover transactions, replace current state, or report into a newer controller.
+Native authorization also refuses entrypoint reads,
 installation, updates, executable probes and privileged runtime calls. Explicit
 recovery keeps approved namespace metadata and non-executing clock samples
 available for timer-stop journals, without permitting vault content or external

@@ -327,6 +327,78 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it.each(["resolved", "rejected"] as const)(
+    "ignores a %s startup-policy response from an obsolete controller",
+    async (outcome) => {
+      let finishPolicy: (mode: boolean) => void = () => {};
+      let rejectPolicy: (error: Error) => void = () => {};
+      const policy = new Promise<boolean>((resolve, reject) => {
+        finishPolicy = resolve;
+        rejectPolicy = reject;
+      });
+      vi.mocked(api.getPluginStartupMode).mockReturnValueOnce(policy);
+      const obsolete = renderHook(() => usePlugins(reportError, null, "/synthetic/vault-alpha"));
+      await act(async () => obsolete.unmount());
+      const enabled = makePlugin({ enabled: true });
+      const current = await mountReady([enabled]);
+
+      await act(async () => {
+        if (outcome === "resolved") finishPolicy(false);
+        else rejectPolicy(new Error("Synthetic obsolete policy failure"));
+      });
+
+      expect(api.recoverPluginTransactions).not.toHaveBeenCalled();
+      expect(api.listPlugins).not.toHaveBeenCalled();
+      expect(reportError).not.toHaveBeenCalled();
+      expect(current.result.current.plugins).toEqual([enabled]);
+      expect(current.result.current.safeMode).toBe(false);
+    },
+  );
+
+  it("reports an active startup-policy failure and keeps every enable path closed", async () => {
+    const failure = new Error("Synthetic startup policy failure");
+    vi.mocked(api.getPluginStartupMode).mockRejectedValueOnce(failure);
+    const { result } = renderHook(() => usePlugins(reportError, null, "/synthetic/vault-alpha"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(reportError).toHaveBeenCalledWith(failure);
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.recoverPluginTransactions).not.toHaveBeenCalled();
+    await expect(result.current.enable(pluginId, catalog.manifest.permissions))
+      .rejects.toThrow(/startup policy is unavailable/i);
+    await expect(result.current.loadDevelopmentPlugin())
+      .rejects.toThrow(/startup policy is unavailable/i);
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(api.chooseDevelopmentPluginArchive).not.toHaveBeenCalled();
+  });
+
+  it("does not replace the current catalog with an obsolete startup refresh", async () => {
+    const previousPlugin = makePlugin({ enabled: false });
+    const currentPlugin = makePlugin({ enabled: true });
+    let finishRefresh: (plugins: PluginView[]) => void = () => {};
+    const refresh = new Promise<PluginView[]>((resolve) => {
+      finishRefresh = resolve;
+    });
+    vi.mocked(api.listPlugins).mockReset()
+      .mockResolvedValueOnce([previousPlugin])
+      .mockReturnValueOnce(refresh)
+      .mockResolvedValueOnce([currentPlugin])
+      .mockResolvedValueOnce([currentPlugin]);
+    const rendered = renderHook(
+      ({ onError }) => usePlugins(onError),
+      { initialProps: { onError: reportError } },
+    );
+    await waitFor(() => expect(api.listPlugins).toHaveBeenCalledTimes(2));
+
+    rendered.rerender({ onError: vi.fn() });
+    await waitFor(() => expect(rendered.result.current.loading).toBe(false));
+    expect(rendered.result.current.plugins).toEqual([currentPlugin]);
+    await act(async () => finishRefresh([previousPlugin]));
+
+    expect(rendered.result.current.plugins).toEqual([currentPlugin]);
+  });
+
   it("keeps approved plugins stopped in startup safe mode without deleting their settings or packages", async () => {
     vi.mocked(api.getPluginStartupMode).mockResolvedValue(true);
     const enabled = makePlugin({

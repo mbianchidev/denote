@@ -538,20 +538,22 @@ export function usePlugins(
         }
       });
     void api
-        .getPluginStartupMode()
-        .then((mode) => {
-          if (typeof mode !== "boolean") {
-            throw new Error("Plugin startup policy is unavailable. No plugins were started.");
-          }
-          if (!cancelled) {
-            safeModeRef.current = mode;
-            startsAllowedRef.current = !mode;
-            setSafeMode(mode);
-          }
-          return api.recoverPluginTransactions();
-        })
-        .then(api.listPlugins)
-      .then(async (available) => {
+      .getPluginStartupMode()
+      .then(async (mode) => {
+        if (cancelled) {
+          return;
+        }
+        if (typeof mode !== "boolean") {
+          throw new Error("Plugin startup policy is unavailable. No plugins were started.");
+        }
+        safeModeRef.current = mode;
+        startsAllowedRef.current = !mode;
+        setSafeMode(mode);
+        await api.recoverPluginTransactions();
+        if (cancelled) {
+          return;
+        }
+        const available = await api.listPlugins();
         if (cancelled) {
           return;
         }
@@ -578,10 +580,17 @@ export function usePlugins(
           }
         }
         if (!cancelled) {
-          setPlugins(await api.listPlugins());
+          const refreshed = await api.listPlugins();
+          if (!cancelled) {
+            setPlugins(refreshed);
+          }
         }
       })
-      .catch(reportError)
+      .catch((error) => {
+        if (!cancelled) {
+          reportError(error);
+        }
+      })
       .finally(() => {
         if (!cancelled) {
           setLoading(false);
