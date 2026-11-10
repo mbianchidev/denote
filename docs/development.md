@@ -1746,9 +1746,9 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-11-09**.
+Last vendored-library check: **2026-11-10**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-repairing the emoji pane regression timeout. Official crates.io API and registry
+making release messages non-interactive. Fresh crates.io API and sparse-registry
 records, upstream release notes and migration/backport trackers, and the RustSec
 snapshot linked below still show the same compatibility constraints.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
@@ -1763,7 +1763,7 @@ is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
 same Rust 1.89 minimum as 4.18.2. Removing the notification backport still
 requires the source-aware audit, Linux delivery regressions, and all-platform
-checks; this test repair retains the notification backport. The other six
+checks; this release-script change retains the notification backport. The other six
 backports have no compatible published replacement: newer GTK/GLib types do
 not match GTK 0.18, Tauri utils 2.9.3 still requires URLPattern `^0.3`, and
 newer opener/single-instance plugins require Tauri `^2.12` while retaining
@@ -2342,7 +2342,10 @@ complete release validation suite, and updates `package.json`, `package-lock.jso
 target the matching versioned GitHub Release while retaining each archive's
 source commit, checksum, and size. Only those release files may change. After
 validation, the script creates an unsigned `Release v<version>` commit, pushes
-`main`, then creates and pushes the matching tag.
+`main`, then creates and pushes the matching annotated tag. Both messages are
+generated automatically as `Release v<version>` without opening an editor,
+including when `tag.gpgSign` enables tag signing. The commit stays unsigned;
+the tag retains the configured signing policy.
 
 Tags must use semantic versions and point to a commit on `main`. The release
 workflow validates the tag against every version source and builds every
