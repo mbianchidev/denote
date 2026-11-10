@@ -1722,6 +1722,17 @@ Synthetic success/failure coverage runs with
 registry errors, unavailable metadata, yanked-version rejection, and the retained
 GLib advisory.
 
+The 2026-11-10 advisory refresh reported
+[RUSTSEC-2026-0474](https://rustsec.org/advisories/RUSTSEC-2026-0474),
+[RUSTSEC-2026-0476](https://rustsec.org/advisories/RUSTSEC-2026-0476), and
+[RUSTSEC-2026-0477](https://rustsec.org/advisories/RUSTSEC-2026-0477)
+against the locked OpenSSL 0.10.78 binding. The lockfile now uses
+[OpenSSL 0.10.82](https://github.com/rust-openssl/rust-openssl/blob/openssl-v0.10.82/openssl/CHANGELOG.md)
+and its required `openssl-sys` 0.9.118. This compatible patch retains the
+upstream UTF-8 validation and key-wrap buffer fixes without changing the Tauri
+runtime family, application version, or local backports. Both audit passes
+must remain clean apart from the explicitly retained GLib baseline below.
+
 The published-baseline scan still reports
 [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) because
 its version-based rule marks GLib 0.18.5 affected even with the source fix.
@@ -1817,7 +1828,7 @@ GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
 single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
 Official registry records, release notes, the
 linked upstream backport and D-Bus migration requests, and the
-[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/58a64e69d7a08a2b83a80efa6e4b018a9acb51fc/crates)
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/28d73fc95e5972af3403225a217def57dcaba3c4/crates)
 confirm the constraints below. **A compatible notification-backend candidate
 is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
