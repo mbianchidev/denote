@@ -1,5 +1,5 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { AppLockStatus, DocumentBatch, FileNode, NoteStats, WorkspaceSnapshot } from "../src/types";
+import type { AppLockStatus, DocumentBatch, FileNode, NoteStats, PluginView, WorkspaceSnapshot } from "../src/types";
 
 interface BenchmarkState {
   inputLatencies: number[];
@@ -11,6 +11,7 @@ interface BenchmarkState {
   vaultReads: number;
   noteReads: number;
   deviceAttempts: number;
+  saves: string[];
 }
 
 declare global {
@@ -18,6 +19,10 @@ declare global {
     __DENOTE_BENCHMARK__: BenchmarkState;
     __DENOTE_LARGE_INDEX__?: boolean;
     __DENOTE_APP_LOCK__?: AppLockStatus;
+    __DENOTE_SAFE_MODE__?: boolean;
+    __DENOTE_PLUGIN_CATALOG__?: PluginView[];
+    __DENOTE_SMALL_TREE__?: boolean;
+    __DENOTE_REMOTE_IMAGE_NOTE__?: string;
   }
 }
 
@@ -54,7 +59,7 @@ function markdown(sections: number): string {
 }
 
 const documents: Record<string, string> = {
-  "Small.md": "# Small synthetic page\n\nReady.",
+  "Small.md": window.__DENOTE_REMOTE_IMAGE_NOTE__ ?? "# Small synthetic page\n\nReady.",
   "Typing.md": markdown(180),
   "Reading.md": markdown(500),
   "Source.txt": "Synthetic source line, no personal data.\n".repeat(2500),
@@ -81,6 +86,7 @@ const state: BenchmarkState = {
   vaultReads: 0,
   noteReads: 0,
   deviceAttempts: 0,
+  saves: [],
 };
 window.__DENOTE_BENCHMARK__ = state;
 const node = (path: string): FileNode => ({
@@ -103,7 +109,8 @@ const snapshot: WorkspaceSnapshot = {
     ...(window.__DENOTE_LARGE_INDEX__ ? [{
       ...node("Archive"), kind: "folder" as const,
       children: Object.keys(documents).filter((path) => path.startsWith("Archive/")).map(node),
-    }] : Array.from({ length: 3000 }, (_, index) => node(`Synthetic ${index}.txt`))),
+    }] : window.__DENOTE_SMALL_TREE__ ? [] :
+      Array.from({ length: 3000 }, (_, index) => node(`Synthetic ${index}.txt`))),
   ],
   bookmarks: [],
   recent: [],
@@ -155,6 +162,7 @@ mockIPC((command, payload) => {
     throw new Error("Denote is locked.");
   }
   switch (command) {
+    case "get_plugin_startup_mode": return window.__DENOTE_SAFE_MODE__ === true;
     case "get_app_lock_status":
       return structuredClone(state.appLock);
     case "unlock_app_with_password":
@@ -182,6 +190,9 @@ mockIPC((command, payload) => {
     case "refresh_vault":
       return snapshot;
     case "list_plugins":
+      return structuredClone(window.__DENOTE_PLUGIN_CATALOG__ ?? []);
+    case "get_plugin_tool_statuses":
+      return [];
     case "list_plugin_bundles":
     case "list_known_vaults":
     case "list_history":
@@ -237,8 +248,13 @@ mockIPC((command, payload) => {
     }
     case "record_edit":
       return stats;
+    case "read_image_data_url":
+      if (argument(payload, "imageSource") !== "assets/local.svg" ||
+          argument(payload, "notePath") !== "Small.md") throw new Error("Unknown synthetic local image");
+      return `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="12" fill="green"/></svg>')}`;
     case "save_note": {
       const path = argument(payload, "path");
+      state.saves.push(path);
       state.documents[path] = argument(payload, "content");
       fileVersions.set(path, ++hash);
       return {

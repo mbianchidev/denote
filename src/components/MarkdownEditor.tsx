@@ -59,6 +59,7 @@ import { defaultHandlers, type Unsafe } from "mdast-util-to-markdown";
 import {
   forwardRef,
   useCallback,
+  useContext,
   useEffect,
   useId,
   useMemo,
@@ -82,6 +83,7 @@ import {
 import type { DiagramEditorBinding } from "../plugins/diagramRenderers";
 import { referenceMarkdownPlugin } from "./ReferenceMarkdownNode";
 import { api, errorMessage } from "../lib/api";
+import { BLOCKED_REMOTE_IMAGE, isRemoteImageSource, RemoteImagesAllowedContext } from "../lib/remoteImages";
 import {
   createEditorDiagnosticExtensions,
   createEditorDisplayExtensions,
@@ -430,6 +432,7 @@ export const MarkdownEditor = forwardRef<
   },
   ref,
 ) {
+  const remoteImagesAllowed = useContext(RemoteImagesAllowedContext);
   const boundaryWhitespaceRef = useRef<
     ReturnType<typeof captureMarkdownBoundaryWhitespace> | null
   >(null);
@@ -700,10 +703,11 @@ export const MarkdownEditor = forwardRef<
       imagePlugin({
         imageUploadHandler: (file) => callbacksRef.current.onImageUpload(notePath, file),
         imagePreviewHandler: async (source) => {
+          if (isRemoteImageSource(source)) {
+            return remoteImagesAllowed ? source : BLOCKED_REMOTE_IMAGE;
+          }
           if (
-            source.startsWith("data:") ||
-            source.startsWith("http://") ||
-            source.startsWith("https://")
+            source.startsWith("data:")
           ) {
             return source;
           }
@@ -886,6 +890,7 @@ export const MarkdownEditor = forwardRef<
       preferredViewMode,
       projectSourceMode,
       readOnly,
+      remoteImagesAllowed,
       restorePreferredViewMode,
       sourceOnly,
     ],

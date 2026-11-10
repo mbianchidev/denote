@@ -74,6 +74,75 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+### Release-hardening checks
+
+Install the reviewed [Gitleaks 8.30.1 release](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1)
+for local secret scanning and verify its published archive checksum before
+execution. CI uses a read-only token to retrieve the exact Linux archive by tag,
+removes that token from the environment, and verifies the pinned SHA-256 before
+execution. Checkout credentials are not retained.
+
+```bash
+npm run check:secrets
+npm run check:plugin-api
+npm run build
+npm exec --no -- playwright test benchmarks/accessibility.perf.ts benchmarks/pluginLifecycle.perf.ts
+npm run package:plugins
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
+  staged_catalog_packages_complete_native_lifecycle -- --ignored
+```
+
+The history scan redacts matched values completely. `.gitleaksignore` contains
+only individually reviewed historical fingerprints for synthetic PDF bytes,
+public signing-key hashes/identifiers, and ARIA shortcut strings. It does not
+exclude whole source or test directories. Investigate every new finding; never
+add a credential to the baseline or treat missing scanner execution as success.
+
+The API check emits declarations with the locked compiler into a temporary
+directory and compares the complete API 1 surface with its versioned baseline.
+See [API 1 freeze and deprecation policy](plugins.md#api-1-freeze-and-deprecation-policy)
+before intentionally updating that baseline.
+
+The browser accessibility gate checks core editing, Editor/Security settings,
+all catalog cards, permission review, guides and settings, keyboard recovery,
+and native-startup safe-mode behavior in dark and light/compact layouts. It
+retains axe's complete results, including checks that need human review.
+Passing automation is not screen-reader or native-webview certification.
+The catalog-wide lifecycle journey starts every real compiled worker through
+keyboard permission approval, recovers a failed installation, checks every
+available activity-rail surface in dark and light, confirms clock shutdown,
+and verifies worker termination without note, annotation, or audio changes.
+Its native IPC is synthetic; the separate staged native gate verifies the real
+archives, installation and filesystem cleanup on each CI platform.
+Before qualifying a release candidate, separately record VoiceOver on macOS,
+NVDA on Windows, Orca on Linux, 200% zoom/text scaling, forced colors, focus
+visibility/obscuration, and the populated feature surfaces not covered by the
+automated journeys.
+
+The staged native lifecycle gate verifies every candidate archive against its
+catalog size and digest, then uses the isolated debug-only local adapter to
+exercise repeated enable/disable, update, rollback and retry without publishing
+assets or changing the production downloader. It also checks default-disabled
+state, denied unapproved installation, retained plugin metadata, and exact
+note/comment/audio/credential-canary bytes after each transition. CI runs it on
+all three platforms.
+The separate `published_catalog_downloads_complete_native_lifecycle` and
+`source_pinned_downloads_complete_native_lifecycle` tests require published
+network origins. Run them explicitly with `--ignored` only against a published
+catalog; an unpublished URL is not a successful download test.
+
+For manual installation and update qualification, use disposable test profiles
+and synthetic vaults on each supported OS. Check real installer upgrade/removal,
+failed and interrupted signed updates, restart recovery, encrypted lock/unlock,
+and user-data preservation. Unit tests and a renderer smoke cannot stand in for
+these checks.
+
+An unpublished review build is not permission to tag, publish, push `main`, or
+pre-bump the application. Follow **Preview an unpublished plugin on macOS**
+below for the isolated Development bundle and separate local archives. A
+candidate is not release-qualified until the roadmap prerequisites and every
+manual gate have evidence; only release-blocking fixes may enter its freeze.
+
 App-lock checks use synthetic data and never request a real biometric prompt:
 
 ```bash
@@ -1662,6 +1731,17 @@ Synthetic success/failure coverage runs with
 registry errors, unavailable metadata, yanked-version rejection, and the retained
 GLib advisory.
 
+The 2026-11-10 advisory refresh reported
+[RUSTSEC-2026-0474](https://rustsec.org/advisories/RUSTSEC-2026-0474),
+[RUSTSEC-2026-0476](https://rustsec.org/advisories/RUSTSEC-2026-0476), and
+[RUSTSEC-2026-0477](https://rustsec.org/advisories/RUSTSEC-2026-0477)
+against the locked OpenSSL 0.10.78 binding. The lockfile now uses
+[OpenSSL 0.10.82](https://github.com/rust-openssl/rust-openssl/blob/openssl-v0.10.82/openssl/CHANGELOG.md)
+and its required `openssl-sys` 0.9.118. This compatible patch retains the
+upstream UTF-8 validation and key-wrap buffer fixes without changing the Tauri
+runtime family, application version, or local backports. Both audit passes
+must remain clean apart from the explicitly retained GLib baseline below.
+
 The published-baseline scan still reports
 [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) because
 its version-based rule marks GLib 0.18.5 affected even with the source fix.
@@ -1748,23 +1828,23 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-11-10**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-making release messages non-interactive. Fresh crates.io API and sparse-registry
+starting the release-hardening review. Fresh official sparse-registry
 records, upstream release notes and migration/backport trackers, and the RustSec
 snapshot linked below still show the same compatibility constraints.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
 GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
-0.3.0 / 0.6.0, notification 2.4.0 / 2.8.0, opener 2.5.5 / 2.7.2, and
+0.3.0 / 0.6.0, notification 2.4.0 / 2.8.1, opener 2.5.5 / 2.7.3, and
 single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
 Official registry records, release notes, the
 linked upstream backport and D-Bus migration requests, and the
-[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/d9cb059f3217db87aeccd190b81eaffe8cc29cb9/crates)
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/28d73fc95e5972af3403225a217def57dcaba3c4/crates)
 confirm the constraints below. **A compatible notification-backend candidate
 is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
 same Rust 1.89 minimum as 4.18.2. Removing the notification backport still
 requires the source-aware audit, Linux delivery regressions, and all-platform
-checks; this release-script change retains the notification backport. The other six
-backports have no compatible published replacement: newer GTK/GLib types do
+checks. The notification backport remains in place. The other six backports
+have no compatible published replacement: newer GTK/GLib types do
 not match GTK 0.18, Tauri utils 2.9.3 still requires URLPattern `^0.3`, and
 newer opener/single-instance plugins require Tauri `^2.12` while retaining
 zbus 5. The reviewed
@@ -1839,18 +1919,20 @@ remain applicable to the original dependency graphs. Neither withdrawal nor
 a newer incompatible release removes the need for these local replacements.
 
 Published
-[notification 2.8.0](https://crates.io/crates/tauri-plugin-notification/2.8.0),
-[opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
+[notification 2.8.1](https://crates.io/crates/tauri-plugin-notification/2.8.1),
+[opener 2.7.3](https://crates.io/crates/tauri-plugin-opener/2.7.3), and
 [single-instance 2.5.5](https://crates.io/crates/tauri-plugin-single-instance/2.5.5)
 require Tauri 2.12. All three still require zbus 5 directly; notification
 also uses notify-rust `^4.18`, which can now resolve the maintained 4.19.0 backend.
 The notification replacement candidate above applies to the compatible 2.4.0
-package, not an upgrade to 2.8.0. The
-[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.0),
-[opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
+package, not an upgrade to 2.8.1. The
+[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.1),
+[opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.3),
 and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.5)
-do not provide compatible releases removing the D-Bus backports. The
-[upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+do not provide compatible releases removing the D-Bus backports. The notification
+and opener patches published on 2026-11-10 fix Android permission completion and
+HTML link targets respectively, not the pinned runtime's dependency constraints.
+The [upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
 is open. [notify-rust 4.18.2](https://crates.io/crates/notify-rust/4.18.2),
 retained in the lockfile, still defaults to zbus 5, whereas the newly published
 [4.19.0 registry record](https://index.crates.io/no/ti/notify-rust) requires

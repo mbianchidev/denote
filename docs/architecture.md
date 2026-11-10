@@ -150,6 +150,17 @@ The browser is the review/edit surface; Denote never submits an issue.
 
 ## Data boundaries
 
+Remote image consent is a separate, off-by-default host preference, not an
+external-link domain grant or a plugin permission. One React context governs
+ordinary Markdown images, the safe HTML subset, read views and presentations.
+Preview resolution substitutes an explicitly labelled local placeholder before
+any remote URL reaches an image element while consent is absent; local vault
+images continue through native bounded reads. Revocation updates existing
+renderers without rewriting Markdown. Only the boolean is persisted, and a
+failed read/save keeps this session blocked with a visible error. Browser
+referrers are disabled for approved image requests. This preference does not
+sandbox explicitly approved native tools or disable their own networking.
+
 ### Optional app lock
 
 `src-tauri/src/app_lock.rs` owns device-local app-lock configuration and native
@@ -383,6 +394,17 @@ security boundary: it downloads, verifies, installs, persists state, and
 recovers transactions. CI rejects editor imports of plugin implementations,
 plugin imports of editor/Tauri internals, and direct plugin-to-plugin
 dependencies.
+
+Startup safe mode is an immutable native manager policy captured from
+`--safe-mode`, not a URL or downloaded-plugin setting. The renderer reads it
+before restoring workers. Obsolete startup-policy and catalog responses cannot
+recover transactions, replace current state, or report into a newer controller.
+Native authorization also refuses entrypoint reads,
+installation, updates, executable probes and privileged runtime calls. Explicit
+recovery keeps approved namespace metadata and non-executing clock samples
+available for timer-stop journals, without permitting vault content or external
+execution. Safe mode retains persisted enablement rather than disabling every
+package as a side effect of launch.
 
 The plugin catalog accepts metadata, not executable modules. Catalog display is
 therefore safe before enablement and cannot run plugin code. Release preparation

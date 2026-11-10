@@ -9,5 +9,16 @@
       "sha256": "180f2efeee3058c4f2efae2c59db88ccc2b282579c39d9c7521c7d49e3970c92",
       "sizeBytes": 16661
     }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/speech",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.speech-0.1.1.tgz",
+      "sha256": "2e02bfa6c7f7aff3f486d6774cae4c8814247de4443043d9fb330a6eb4dc4e28",
+      "sizeBytes": 16688
+    }
   }
 ]

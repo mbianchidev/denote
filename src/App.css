@@ -20,7 +20,7 @@
   --editor-raised: #1d2023;
   --text-primary: #e8e5de;
   --text-secondary: #aaa9a2;
-  --text-tertiary: #858680;
+  --text-tertiary: #92938c;
   --border: #30343a;
   --border-strong: #42474e;
   --accent: #9fbe85;
@@ -120,7 +120,8 @@ button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 summary:focus-visible,
-a:focus-visible {
+a:focus-visible,
+pre[tabindex]:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -279,7 +280,8 @@ button:disabled {
   display: grid;
   place-items: center;
   width: 100%;
-  height: 18px;
+  min-height: 24px;
+  height: 24px;
   padding: 0;
   color: var(--text-tertiary);
   background: transparent;
@@ -1179,6 +1181,10 @@ button:disabled {
   --admonitionNoteBorder: var(--border-strong);
 }
 
+.denote-editor-root .mdxeditor-toolbar button[data-placeholder] > span:first-child {
+  color: var(--text-secondary);
+}
+
 .denote-editor-root [role="toolbar"] {
   min-height: 42px;
   padding: 5px 10px;
@@ -1355,6 +1361,7 @@ button:disabled {
 }
 
 .denote-editor-content .safe-rich-html__image-loading,
+.denote-editor-content .safe-rich-html__image-blocked,
 .denote-editor-content .safe-rich-html__image-error {
   display: inline-block;
   margin: 0.25em;

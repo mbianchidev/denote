@@ -64,7 +64,7 @@ function SourceControlBranchPickerComponent({
       <button
         type="button"
         className="source-control__branch-trigger"
-        aria-label={`Branch: ${currentBranch || "none"}`}
+        aria-label={currentBranch ? `Branch: ${currentBranch}` : "Select branch"}
         aria-expanded={open}
         disabled={busy || branches.length === 0}
         onClick={() => {

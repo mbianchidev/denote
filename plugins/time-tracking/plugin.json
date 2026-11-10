@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.time-tracking",
   "name": "Time tracking",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Use a timer, countdowns, and alarms alongside note time tracking, summaries, and auditable session exports.",
   "publisher": {
     "name": "Denote",
@@ -15,7 +15,7 @@
   "compatibility": {
     "apiVersion": 1,
     "minimumDenoteVersion": "0.10.0",
-    "maximumDenoteVersion": "1.0.0"
+    "maximumDenoteVersion": "2.0.0"
   },
   "permissions": [
     { "capability": "time-tracking" },

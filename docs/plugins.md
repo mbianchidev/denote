@@ -78,10 +78,18 @@ Enablement is transactional and orchestrated by `usePlugins`:
 5. activate and track every disposable registration;
 6. mark the plugin enabled only after activation succeeds.
 
+Content-dependent plugins require an open, unlocked vault before enablement or
+update. The host checks again after package preparation and worker startup;
+locking during either stage rolls back the attempt. A previous content worker
+is not restarted into a locked vault. Metadata-only clocks remain available.
+
 Activation failure runs registered cleanup in reverse order, unloads the
 runtime, and removes the downloaded package. Disabling calls the plugin's
 deactivation hook, disposes registrations, unloads execution, and deletes the
 package even when an earlier cleanup step fails.
+Enabling or disabling an unrelated tool must not remount another plugin's
+open view. Resource-owning child tools keep their own provider and vault
+identity so their cleanup does not discard an active presentation or editor.
 
 The native host downloads HTTPS artifacts into application cache, enforces the
 catalog byte count and SHA-256 digest, rejects links and traversal during
@@ -158,6 +166,16 @@ workers start after the core editor is usable, activation is time-limited, and a
 worker crash automatically terminates that runtime and removes its package.
 Renderer reload, shutdown, and disable-all recover or cancel native preparation
 transactions before another plugin can start.
+
+Starting a new application process with `--safe-mode` pauses plugin execution
+without changing persisted enablement or deleting approved packages. The native
+manager refuses entrypoint reads, package preparation/commit, executable probes,
+and runtime capabilities. The renderer waits for this native startup policy
+before restoring workers and also blocks explicit and automatic activation.
+Host-only namespace metadata and clock samples remain available for recovery
+and timer-stop journals; this does not authorize content access or execution.
+Disablement and explicit data/credential cleanup stay available. Restarting
+without the flag restores the normal verified startup path.
 
 Catalog version changes never execute an old package under new metadata. Denote
 keeps the installed manifest and approved permissions bound to the old package,
@@ -1395,6 +1413,66 @@ The initial catalog is first-party only. A plugin artifact is publishable when:
 retain the API major version. Breaking context, manifest, lifecycle, or
 capability changes increment `compatibility.apiVersion`, document migration,
 and keep the prior host contract for a stated deprecation window before removal.
+
+### Definition of done for every plugin
+
+Apply these gates to each actual catalog version, not just the shared host or
+a representative package:
+
+- Disabled by default; initial code download and execution follow explicit
+  enablement and permission approval. Automatic updates need their separate
+  opt-in and cannot broaden permissions.
+- Activation alone never changes user-authored vault content.
+- Every operation uses only declared, currently approved host capabilities.
+- Locked and encrypted states have explicit behavior; unavailable operations
+  explain why, and no encryption material crosses the plugin boundary.
+- Failures remain actionable, with retry, rollback, disable and recovery
+  controls appropriate to the operation.
+- Complete keyboard operation, accessible names, focus, status and errors are
+  verified for management and active feature surfaces.
+- The exact package has its versioned in-app guide; declarative settings exist
+  only for meaningful configuration.
+- Builds, behavioral tests, lifecycle, compatibility, integrity, dependency,
+  accessibility and documentation gates pass.
+- Disablement unregisters contributions, terminates execution, releases owned
+  resources and removes downloaded executable packages and caches.
+- Removal preserves user-authored notes, annotations, audio and credential
+  documents. Explicit data cleanup remains separate from executable removal.
+
+The staged native lifecycle gate checks every current archive, including
+default state, denied unapproved installation, repeated enable/disable,
+failed-update rollback and byte-exact user-data retention. The catalog-driven
+browser journey uses every real compiled worker, explicit keyboard approval,
+failed-install recovery, active surface accessibility and worker termination.
+These checks do not replace the manual screen-reader, platform installation
+and encrypted-state qualification required for a release candidate.
+
+### API 1 freeze and deprecation policy
+
+The public API 1 baseline is the compiler-emitted declaration set in
+`packages/plugin-sdk/api/v1/`. `npm run check:plugin-api`, included in
+`check:plugins`, compares the complete exported types, function signatures and
+literal constants against that baseline. Internal implementation or comment
+changes do not require a new baseline. A changed declaration fails explicitly;
+the checker never rewrites the baseline during ordinary validation.
+
+API 1 remains supported throughout Denote 1.x. A deprecated API may gain a
+documented replacement, but cannot be removed or change meaning during that
+release line. Breaking changes require a new API major, a migration guide and a
+Denote major release after the full 1.x support window. No existing permission
+may silently gain broader access.
+
+From the v1.0 release candidate until v1.0.0, only release-blocking fixes are
+accepted. New capabilities, permission expansion and unrelated refactors are
+not candidate fixes. The freeze does not imply that manual accessibility,
+platform-installation or other readiness gates have passed.
+
+After review, an intentionally compatible future addition can update the
+baseline with `npm run check:plugin-api -- --update-baseline`; review its
+generated declaration diff, compatibility tests and migration documentation.
+Never regenerate the baseline merely to hide an unexpected failure or to admit
+a breaking API 1 change. Compiler upgrades also require declaration-diff review.
+The SDK package version, API major and application version remain independent.
 
 A vulnerable or compromised artifact is removed from its hosting ref when
 possible, recorded in the plugin issue, and marked with a catalog revocation

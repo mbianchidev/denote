@@ -8,7 +8,10 @@ use sha2::{Digest, Sha256};
 #[cfg(unix)]
 use super::sandbox::current_platform;
 use super::{
-    catalog::{catalog_fingerprint, compatibility_error, validate_bundles, validate_catalog},
+    catalog::{
+        catalog_fingerprint, compatibility_error, compatibility_error_for_host, validate_bundles,
+        validate_catalog,
+    },
     package::validate_plugin_download_url,
     sandbox::{enforce_storage_quota, host_matches},
     settings::{migrate_settings, validate_settings},
@@ -24,6 +27,21 @@ pub(super) fn catalog() -> PluginCatalogEntry {
     serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON)
         .expect("catalog")
         .remove(0)
+}
+
+#[test]
+fn every_catalog_plugin_supports_api_one_hosts_throughout_denote_one_x() {
+    let entries: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON).expect("catalog");
+    for host in ["1.0.0-rc.1", "1.0.0", "1.42.0"] {
+        for entry in &entries {
+            assert_eq!(
+                compatibility_error_for_host(entry, host),
+                None,
+                "{} on Denote {host}",
+                entry.manifest.id,
+            );
+        }
+    }
 }
 
 #[test]
@@ -115,15 +133,26 @@ fn persisted_development_plugin_is_removed_before_startup_restore() {
 }
 
 pub(super) fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
+    package_bytes_with_entrypoints(
+        catalog,
+        b"export default {};",
+        b"export async function renderDiagram() { return {}; }",
+    )
+}
+
+pub(super) fn package_bytes_with_entrypoints(
+    catalog: &PluginCatalogEntry,
+    worker: &[u8],
+    renderer: &[u8],
+) -> Vec<u8> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = Builder::new(encoder);
     let manifest = serde_json::to_vec(&catalog.manifest).expect("manifest");
     append(&mut builder, "plugin.json", &manifest);
-    append(
-        &mut builder,
-        &catalog.manifest.entrypoint,
-        b"export default {};",
-    );
+    append(&mut builder, &catalog.manifest.entrypoint, worker);
+    if let Some(declaration) = &catalog.manifest.diagram_renderer {
+        append(&mut builder, &declaration.entrypoint, renderer);
+    }
     append(
         &mut builder,
         &catalog.manifest.documentation,
@@ -157,6 +186,7 @@ pub(super) fn manager(
     fs::create_dir_all(cache.path().join("plugin-downloads")).expect("plugin cache");
     PluginManager {
         inner: Arc::new(PluginManagerInner {
+            safe_mode: false,
             app_data_dir: data.path().to_path_buf(),
             app_cache_dir: cache.path().to_path_buf(),
             resource_dir: PathBuf::new(),
@@ -222,6 +252,82 @@ fn verifies_and_installs_package_without_touching_vault_content() {
         fs::read_to_string(vault.join("note.md")).expect("note"),
         "unchanged"
     );
+}
+
+#[test]
+fn safe_mode_blocks_execution_and_installation_but_preserves_packages_and_recovery() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let mut catalog = catalog();
+    let bytes = package_bytes(&catalog);
+    catalog.artifact.size_bytes = bytes.len() as u64;
+    catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+    let mut manager = manager(catalog.clone(), &data, &cache);
+    manager.install_package(&catalog, &bytes).expect("install");
+    let plugin_id = &catalog.manifest.id;
+    manager
+        .update_state(|state| {
+            state.enabled.insert(plugin_id.clone());
+            state.approved_permissions.insert(
+                plugin_id.clone(),
+                catalog.manifest.permissions.iter().cloned().collect(),
+            );
+            state
+                .storage
+                .entry(plugin_id.clone())
+                .or_default()
+                .insert("preference".into(), Value::String("synthetic".into()));
+            Ok(())
+        })
+        .expect("approved state");
+    Arc::get_mut(&mut manager.inner)
+        .expect("exclusive manager")
+        .safe_mode = true;
+
+    for result in [
+        manager.read_entrypoint(plugin_id).map(|_| ()),
+        manager
+            .prepare(plugin_id, catalog.manifest.permissions.clone())
+            .map(|_| ()),
+        manager.authorize_runtime(plugin_id, None),
+        manager
+            .enabled_permission(plugin_id, "commands")
+            .map(|_| ()),
+    ] {
+        assert!(
+            result
+                .expect_err("safe mode")
+                .to_string()
+                .contains("safe mode")
+        );
+    }
+    assert!(
+        manager
+            .install_dir(&catalog)
+            .join("dist/index.js")
+            .is_file()
+    );
+    assert!(manager.state().expect("state").enabled.contains(plugin_id));
+    assert_eq!(
+        manager
+            .storage_get(plugin_id, "preference")
+            .expect("metadata"),
+        Some(Value::String("synthetic".into()))
+    );
+    assert!(
+        manager
+            .pending_transactions()
+            .expect("transactions")
+            .is_empty()
+    );
+
+    manager
+        .disable(plugin_id, false, false)
+        .expect("recovery disable");
+    assert!(!manager.plugin_root(plugin_id).exists());
+    let state = manager.state().expect("state");
+    assert!(!state.enabled.contains(plugin_id));
+    assert_eq!(state.storage[plugin_id]["preference"], "synthetic");
 }
 
 #[test]

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.kanban",
   "name": "Kanban boards",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Create and edit keyboard-accessible Kanban boards stored as portable Markdown.",
   "publisher": {
     "name": "Denote",
@@ -15,7 +15,7 @@
   "compatibility": {
     "apiVersion": 1,
     "minimumDenoteVersion": "0.8.2",
-    "maximumDenoteVersion": "1.0.0"
+    "maximumDenoteVersion": "2.0.0"
   },
   "permissions": [
     {

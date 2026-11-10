@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.note-graph",
   "name": "Note graph",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Explore bounded local connections between Markdown notes without changing vault content.",
   "publisher": {
     "name": "Denote",
@@ -15,7 +15,7 @@
   "compatibility": {
     "apiVersion": 1,
     "minimumDenoteVersion": "0.4.0",
-    "maximumDenoteVersion": "1.0.0"
+    "maximumDenoteVersion": "2.0.0"
   },
   "permissions": [
     {

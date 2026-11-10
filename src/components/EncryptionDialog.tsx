@@ -147,8 +147,8 @@ export function EncryptionDialog({
         event.preventDefault();
         close();
       }}
-      onClose={() => {
-        if (open && canClose) {
+      onClose={(event) => {
+        if (open && canClose && !event.currentTarget.open) {
           close();
         }
       }}

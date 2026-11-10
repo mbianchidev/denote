@@ -9,5 +9,16 @@
       "sha256": "5946bcb873950a10ec3a0c39138f59f58cda6ba728ccaa9b5d0d07782adf10d9",
       "sizeBytes": 18381
     }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/note-comments",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.note-comments-0.1.1.tgz",
+      "sha256": "166bf798be211a907ac10ed8fed50b528215b4cf9d0334f76b27fbab0253d351",
+      "sizeBytes": 18485
+    }
   }
 ]

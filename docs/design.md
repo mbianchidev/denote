@@ -340,6 +340,9 @@ credentials retain their own established icons. The same glyph follows each
 view into **Organize plugins**, including hidden entries; names, keyboard
 controls and focus remain authoritative. Icons use current-color 19px strokes
 at the rail and never render downloaded SVG or executable plugin UI.
+Plugin-group toggles retain a 24px minimum target with every tool visible.
+Source-control repository and branch controls include their visible labels and
+state in their accessible names.
 File rows, tabs, and outline entries share compact hover and selected states.
 Plugin source-control providers receive distinct, named rail buttons without
 becoming static sidebar views. Their host-rendered sidebar starts with a compact
@@ -400,6 +403,9 @@ with normal controls. Activating **Update all** first opens an inline
 confirmation that lists exact plugin names and explains that the latest full
 permission sets will be accepted; it never hides this security consequence
 behind a progress button.
+Startup safe mode uses the shared informational notice and a persistent status
+label. Enabled packages read **Paused in safe mode**; activation, updates and
+executable setup stay disabled, while explicit recovery remains available.
 An enabled plugin with an update keeps its installed-version settings and
 runtime until the user chooses **Review and update** or **Update all**; the
 expanded entry shows both installed and available versions when they differ.

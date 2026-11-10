@@ -183,6 +183,7 @@ function permissionsUnchanged(
 }
 
 export interface PluginController {
+  safeMode: boolean;
   sensitiveTools: PluginSensitiveToolContribution[];
   authoringProviders: PluginAuthoringContribution[];
   requestAuthoring: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
@@ -346,6 +347,8 @@ export function usePlugins(
   contentAvailable = true,
   confirmTimeTrackingStop: (names: string[]) => Promise<boolean> = async () => false,
 ): PluginController {
+  const [safeMode, setSafeMode] = useState(false);
+  const safeModeRef = useRef<boolean | null>(null);
   const [codeProviders, setCodeProviders] = useState<PluginCodeContribution[]>([]);
   const [toolProviders, setToolProviders] = useState<PluginToolContribution[]>([]);
   const [sensitiveToolState, setSensitiveToolState] = useState<{
@@ -429,7 +432,7 @@ export function usePlugins(
   const vaultClonedRef = useRef(onVaultCloned);
   vaultClonedRef.current = onVaultCloned;
   const pendingTransactionsRef = useRef(new Map<string, string>());
-  const startsAllowedRef = useRef(true);
+  const startsAllowedRef = useRef(false);
   // Set while an explicit `disableAll` recovery action is in flight so the
   // automatic-update effect never races it: `disableAll` is not funneled
   // through the per-plugin `withBusy` queue, and an automatic update could
@@ -448,9 +451,23 @@ export function usePlugins(
     setPlugins(await api.listPlugins());
   }, []);
 
+  const assertStartupAllowed = useCallback(() => {
+    if (safeModeRef.current !== false) {
+      throw new Error(safeModeRef.current
+        ? "Plugins are paused in safe mode. Quit Denote and restart without --safe-mode."
+        : "Plugin startup policy is unavailable. Restart Denote before enabling plugins.");
+    }
+  }, []);
+  const assertContentAvailable = useCallback((permissions: readonly PluginPermissionRequest[]) => {
+    if (!contentAvailableRef.current && permissionsRequireContent(permissions)) {
+      throw new Error("Open or unlock a vault before enabling this plugin.");
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    startsAllowedRef.current = true;
+    startsAllowedRef.current = false;
+    safeModeRef.current = null;
     const runtime = new PluginWorkerRuntime(
       setCommands,
       (pluginId, error) => {
@@ -526,9 +543,22 @@ export function usePlugins(
         }
       });
     void api
-      .recoverPluginTransactions()
-      .then(api.listPlugins)
-      .then(async (available) => {
+      .getPluginStartupMode()
+      .then(async (mode) => {
+        if (cancelled) {
+          return;
+        }
+        if (typeof mode !== "boolean") {
+          throw new Error("Plugin startup policy is unavailable. No plugins were started.");
+        }
+        safeModeRef.current = mode;
+        startsAllowedRef.current = !mode;
+        setSafeMode(mode);
+        await api.recoverPluginTransactions();
+        if (cancelled) {
+          return;
+        }
+        const available = await api.listPlugins();
         if (cancelled) {
           return;
         }
@@ -537,7 +567,7 @@ export function usePlugins(
           if (cancelled || !startsAllowedRef.current) {
             break;
           }
-          if (!contentAvailableRef.current && requiresContent(plugin)) {
+          if (!contentAvailableRef.current && permissionsRequireContent(plugin.approvedPermissions)) {
             continue;
           }
           try {
@@ -555,10 +585,17 @@ export function usePlugins(
           }
         }
         if (!cancelled) {
-          setPlugins(await api.listPlugins());
+          const refreshed = await api.listPlugins();
+          if (!cancelled) {
+            setPlugins(refreshed);
+          }
         }
       })
-      .catch(reportError)
+      .catch((error) => {
+        if (!cancelled) {
+          reportError(error);
+        }
+      })
       .finally(() => {
         if (!cancelled) {
           setLoading(false);
@@ -596,7 +633,7 @@ export function usePlugins(
         if (
           cancelled ||
           !plugin.enabled ||
-          !requiresContent(plugin) ||
+          !permissionsRequireContent(plugin.approvedPermissions) ||
           busyPluginIds.has(plugin.catalog.manifest.id) ||
           pluginOperationsRef.current.has(plugin.catalog.manifest.id)
         ) {
@@ -701,6 +738,7 @@ export function usePlugins(
       approvedPermissions: PluginPermissionRequest[],
     ) => {
       await withBusy(pluginId, async () => {
+        assertStartupAllowed();
         startsAllowedRef.current = true;
         const staleTransaction = pendingTransactionsRef.current.get(pluginId);
         if (staleTransaction) {
@@ -721,6 +759,7 @@ export function usePlugins(
         if (current.enabled && !updating) {
           throw new Error(`Plugin ${pluginId} is already enabled.`);
         }
+        assertContentAvailable(current.catalog.manifest.permissions);
         let previousRuntimeStopped = false;
         let runtimeStarted = false;
         let transactionId: string | null = null;
@@ -748,11 +787,13 @@ export function usePlugins(
           if (!runtime) {
             throw new Error("Plugin runtime is unavailable.");
           }
+          assertContentAvailable(approvedPermissions);
           await runtime.start({
             ...prepared,
             approvedPermissions,
           });
           runtimeStarted = true;
+          assertContentAvailable(approvedPermissions);
           if (!runtime.isRunning(pluginId)) {
             throw new Error(`Plugin ${pluginId} stopped before enablement completed.`);
           }
@@ -787,7 +828,8 @@ export function usePlugins(
                 (plugin) =>
                   plugin.catalog.manifest.id === pluginId && plugin.enabled,
               );
-              if (previous) {
+              if (previous && (contentAvailableRef.current ||
+                  !permissionsRequireContent(previous.approvedPermissions))) {
                 await runtimeRef.current?.start(previous);
               }
             } catch (restartError) {
@@ -811,7 +853,7 @@ export function usePlugins(
         }
       });
     },
-    [plugins, refresh, reportError, withBusy],
+    [assertContentAvailable, assertStartupAllowed, plugins, refresh, reportError, withBusy],
   );
 
   const prepareTimeTrackingDisable = useCallback(async (pluginIds: string[]) => {
@@ -890,7 +932,7 @@ export function usePlugins(
     // Wait until startup restoration (recovery, restart of already-enabled
     // plugins, then a final refresh) has settled: acting on an intermediate
     // snapshot could race the native transaction it starts from.
-    if (!autoUpdateEnabled || loading) {
+    if (!autoUpdateEnabled || loading || safeMode) {
       return;
     }
     const eligible = plugins.filter((plugin) => {
@@ -935,9 +977,10 @@ export function usePlugins(
     return () => {
       cancelled = true;
     };
-  }, [autoUpdateEnabled, loading, plugins, busyPluginIds, enable, reportError]);
+  }, [autoUpdateEnabled, loading, safeMode, plugins, busyPluginIds, enable, reportError]);
 
   const loadDevelopmentPlugin = useCallback(async () => {
+    assertStartupAllowed();
     if (developmentLoadRef.current) {
       return developmentLoadRef.current;
     }
@@ -957,7 +1000,7 @@ export function usePlugins(
         setDevelopmentLoading(false);
       }
     }
-  }, [refresh]);
+  }, [assertStartupAllowed, refresh]);
 
   const clearData = useCallback(
     async (pluginId: string) => {
@@ -1460,6 +1503,7 @@ export function usePlugins(
   }, []);
 
   return {
+    safeMode,
     sensitiveTools: contentAvailable && sensitiveToolState.workspaceIdentity === workspaceIdentity
       ? sensitiveToolState.contributions : EMPTY_SENSITIVE_TOOLS,
     authoringProviders,
@@ -1527,9 +1571,9 @@ export function usePlugins(
   };
 }
 
-function requiresContent(plugin: PluginView): boolean {
-  const hasClocks = plugin.approvedPermissions.some((permission) => permission.capability === "clocks");
-  return plugin.approvedPermissions.some((permission) =>
+function permissionsRequireContent(permissions: readonly PluginPermissionRequest[]): boolean {
+  const hasClocks = permissions.some((permission) => permission.capability === "clocks");
+  return permissions.some((permission) =>
     (permission.capability === "time-tracking" && !hasClocks) ||
     ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence", "tooling", "terminal", "text-styling", "note-comments", "presentation", "speech", "credential-store"].includes(
       permission.capability,

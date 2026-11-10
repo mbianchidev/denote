@@ -296,7 +296,9 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
         {renderEditor(binding, navigation)}
       </div>}
     </>}
-    {active && props.speech?.open && props.speech.container ? createPortal(<SpeechPanel pluginId={props.speech.pluginId} workspaceScope={props.speech.workspaceScope}
+    {active && props.speech?.open && props.speech.container ? createPortal(<SpeechPanel
+      key={`${props.speech.pluginId}:${props.speech.workspaceScope}`}
+      pluginId={props.speech.pluginId} workspaceScope={props.speech.workspaceScope}
       path={path} source={source} selection={speechSelection} captureSelection={() => capture(true)}
       dictationRequest={dictationRequest} suspended={props.speech.suspended || dialog !== null}
       shortcutLabel={props.speech.shortcutLabel} onShortcutChange={props.speech.onShortcutChange}

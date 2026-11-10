@@ -15,7 +15,7 @@ import type {
   PluginTaskListContribution,
   PluginClockContribution,
 } from "./workerRuntime";
-import type { PluginView } from "../types";
+import type { InstalledPlugin, PluginView } from "../types";
 import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
 
@@ -63,6 +63,7 @@ const { runtimeInstances, callOrder } = vi.hoisted(() => ({
 
 vi.mock("../lib/api", () => ({
   api: {
+    getPluginStartupMode: vi.fn(),
     listPlugins: vi.fn(),
     listPluginBundles: vi.fn(),
     preparePluginEnable: vi.fn(),
@@ -316,6 +317,7 @@ const reportError = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.getPluginStartupMode).mockReset().mockResolvedValue(false);
   vi.mocked(api.setPluginSettings).mockReset().mockResolvedValue({});
   vi.mocked(api.getPluginSettings).mockReset().mockResolvedValue({});
   vi.mocked(api.listPluginBundles).mockResolvedValue([]);
@@ -325,6 +327,189 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it.each([
+    "denote.json-yaml-viewer", "denote.mermaid", "denote.kanban", "denote.note-graph",
+    "denote.calendar", "denote.task-lists", "denote.code-intelligence",
+    "denote.text-styling", "denote.note-comments", "denote.presentations",
+    "denote.speech", "denote.credential-store", "denote.linter", "denote.compiler", "denote.terminal",
+  ])("requires an unlocked vault before manually enabling %s", async (id) => {
+    const entry: unknown = catalogJson.find((entry) => entry.manifest.id === id);
+    assertValidPluginCatalogEntry(entry);
+    const plugin = makePlugin({ catalog: entry, enabled: false, approvedPermissions: [] });
+    const { result } = await mountReady([plugin], null, "/synthetic/encrypted-vault", false);
+
+    await expect(result.current.enable(id, entry.manifest.permissions))
+      .rejects.toThrow("Open or unlock a vault before enabling this plugin.");
+
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+  });
+
+  it("rolls back a prepared content plugin when the vault locks before its worker starts", async () => {
+    const entry: unknown = catalogJson.find((entry) => entry.manifest.id === "denote.speech");
+    assertValidPluginCatalogEntry(entry);
+    const plugin = makePlugin({ catalog: entry, enabled: false, approvedPermissions: [] });
+    const rendered = await mountReady([plugin]);
+    let finishPreparation: (installation: InstalledPlugin) => void = () => {};
+    vi.mocked(api.preparePluginEnable).mockReturnValueOnce(new Promise((resolve) => {
+      finishPreparation = resolve;
+    }));
+    let result: Promise<unknown> = Promise.resolve();
+    act(() => {
+      result = rendered.result.current.enable(entry.manifest.id, entry.manifest.permissions)
+        .then(() => null, (error: unknown) => error);
+    });
+    await waitFor(() => expect(api.preparePluginEnable).toHaveBeenCalledOnce());
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-alpha", currentContentAvailable: false,
+    });
+    queueListPlugins([{ ...plugin, approvedPermissions: entry.manifest.permissions }]);
+    queueListPlugins([plugin]);
+    await act(async () => finishPreparation({
+      pluginId: entry.manifest.id, version: entry.manifest.version,
+      entrypoint: entry.manifest.entrypoint, transactionId: "synthetic-locked-preparation",
+    }));
+
+    expect(await result).toMatchObject({ message: "Open or unlock a vault before enabling this plugin." });
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.commitPluginEnable).not.toHaveBeenCalled();
+    expect(api.rollbackPluginEnable).toHaveBeenCalledWith(
+      "synthetic-locked-preparation", "Open or unlock a vault before enabling this plugin.",
+    );
+  });
+
+  it("stops a replacement worker and retains the previous package without restarting it into a locked vault", async () => {
+    const entry: unknown = catalogJson.find((entry) => entry.manifest.id === "denote.speech");
+    assertValidPluginCatalogEntry(entry);
+    const plugin = makePlugin({
+      catalog: entry, enabled: true, status: "update-available", approvedPermissions: entry.manifest.permissions,
+    });
+    const rendered = await mountReady([plugin]);
+    const runtime = runtimeInstances[0];
+    let finishStartup: () => void = () => {};
+    runtime.start.mockImplementationOnce(async () => {
+      runtime.running = true;
+      await new Promise<void>((resolve) => { finishStartup = resolve; });
+    });
+    vi.mocked(api.preparePluginEnable).mockResolvedValueOnce({
+      pluginId: entry.manifest.id, version: entry.manifest.version,
+      entrypoint: entry.manifest.entrypoint, transactionId: "synthetic-locked-update",
+    });
+    queueListPlugins([plugin]);
+    queueListPlugins([plugin]);
+    let result: Promise<unknown> = Promise.resolve();
+    act(() => {
+      result = rendered.result.current.enable(entry.manifest.id, entry.manifest.permissions)
+        .then(() => null, (error: unknown) => error);
+    });
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledTimes(2));
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-alpha", currentContentAvailable: false,
+    });
+    await act(async () => finishStartup());
+
+    expect(await result).toMatchObject({ message: "Open or unlock a vault before enabling this plugin." });
+    expect(runtime.running).toBe(false);
+    expect(runtime.stop).toHaveBeenCalledTimes(2);
+    expect(runtime.start).toHaveBeenCalledTimes(2);
+    expect(api.commitPluginEnable).not.toHaveBeenCalled();
+    expect(api.rollbackPluginEnable).toHaveBeenCalledWith(
+      "synthetic-locked-update", "Open or unlock a vault before enabling this plugin.",
+    );
+    expect(rendered.result.current.plugins[0].enabled).toBe(true);
+  });
+
+  it.each(["resolved", "rejected"] as const)(
+    "ignores a %s startup-policy response from an obsolete controller",
+    async (outcome) => {
+      let finishPolicy: (mode: boolean) => void = () => {};
+      let rejectPolicy: (error: Error) => void = () => {};
+      const policy = new Promise<boolean>((resolve, reject) => {
+        finishPolicy = resolve;
+        rejectPolicy = reject;
+      });
+      vi.mocked(api.getPluginStartupMode).mockReturnValueOnce(policy);
+      const obsolete = renderHook(() => usePlugins(reportError, null, "/synthetic/vault-alpha"));
+      await act(async () => obsolete.unmount());
+      const enabled = makePlugin({ enabled: true });
+      const current = await mountReady([enabled]);
+
+      await act(async () => {
+        if (outcome === "resolved") finishPolicy(false);
+        else rejectPolicy(new Error("Synthetic obsolete policy failure"));
+      });
+
+      expect(api.recoverPluginTransactions).not.toHaveBeenCalled();
+      expect(api.listPlugins).not.toHaveBeenCalled();
+      expect(reportError).not.toHaveBeenCalled();
+      expect(current.result.current.plugins).toEqual([enabled]);
+      expect(current.result.current.safeMode).toBe(false);
+    },
+  );
+
+  it("reports an active startup-policy failure and keeps every enable path closed", async () => {
+    const failure = new Error("Synthetic startup policy failure");
+    vi.mocked(api.getPluginStartupMode).mockRejectedValueOnce(failure);
+    const { result } = renderHook(() => usePlugins(reportError, null, "/synthetic/vault-alpha"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(reportError).toHaveBeenCalledWith(failure);
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.recoverPluginTransactions).not.toHaveBeenCalled();
+    await expect(result.current.enable(pluginId, catalog.manifest.permissions))
+      .rejects.toThrow(/startup policy is unavailable/i);
+    await expect(result.current.loadDevelopmentPlugin())
+      .rejects.toThrow(/startup policy is unavailable/i);
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(api.chooseDevelopmentPluginArchive).not.toHaveBeenCalled();
+  });
+
+  it("does not replace the current catalog with an obsolete startup refresh", async () => {
+    const previousPlugin = makePlugin({ enabled: false });
+    const currentPlugin = makePlugin({ enabled: true });
+    let finishRefresh: (plugins: PluginView[]) => void = () => {};
+    const refresh = new Promise<PluginView[]>((resolve) => {
+      finishRefresh = resolve;
+    });
+    vi.mocked(api.listPlugins).mockReset()
+      .mockResolvedValueOnce([previousPlugin])
+      .mockReturnValueOnce(refresh)
+      .mockResolvedValueOnce([currentPlugin])
+      .mockResolvedValueOnce([currentPlugin]);
+    const rendered = renderHook(
+      ({ onError }) => usePlugins(onError),
+      { initialProps: { onError: reportError } },
+    );
+    await waitFor(() => expect(api.listPlugins).toHaveBeenCalledTimes(2));
+
+    rendered.rerender({ onError: vi.fn() });
+    await waitFor(() => expect(rendered.result.current.loading).toBe(false));
+    expect(rendered.result.current.plugins).toEqual([currentPlugin]);
+    await act(async () => finishRefresh([previousPlugin]));
+
+    expect(rendered.result.current.plugins).toEqual([currentPlugin]);
+  });
+
+  it("keeps approved plugins stopped in startup safe mode without deleting their settings or packages", async () => {
+    vi.mocked(api.getPluginStartupMode).mockResolvedValue(true);
+    const enabled = makePlugin({
+      enabled: true,
+      status: "enabled",
+      approvedPermissions: catalog.manifest.permissions,
+      previouslyApproved: true,
+    });
+    const { result } = await mountReady([enabled]);
+
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.disablePlugin).not.toHaveBeenCalled();
+    expect(result.current.plugins).toEqual([enabled]);
+    expect(result.current.safeMode).toBe(true);
+    await expect(result.current.enable(pluginId, catalog.manifest.permissions))
+      .rejects.toThrow(/safe mode/i);
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+  });
+
   it("does not re-enable a disabled plugin through Update all even with stale update metadata", async () => {
     const disabled = makePlugin({
       enabled: false,

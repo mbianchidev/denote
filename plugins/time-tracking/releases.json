@@ -20,5 +20,16 @@
       "sha256": "ca12c737f5d389e2479bc8c621873ea8b4881be0d371855cb9f44051f8eddaa0",
       "sizeBytes": 26752
     }
+  },
+  {
+    "version": "0.2.1",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/time-tracking",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.time-tracking-0.2.1.tgz",
+      "sha256": "02d515c52ab0e72071a62cbad74e16ca4868ddbad19711418598cfbfa5b29cfd",
+      "sizeBytes": 26903
+    }
   }
 ]

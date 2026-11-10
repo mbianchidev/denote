@@ -138,8 +138,8 @@ export function VaultSwitcherDialog({
           onClose();
         }
       }}
-      onClose={() => {
-        if (open && !busy) {
+      onClose={(event) => {
+        if (open && !busy && !event.currentTarget.open) {
           onClose();
         }
       }}

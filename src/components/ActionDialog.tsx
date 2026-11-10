@@ -51,8 +51,8 @@ export function ActionDialog({
         event.preventDefault();
         onCancel();
       }}
-      onClose={() => {
-        if (open) {
+      onClose={(event) => {
+        if (open && !event.currentTarget.open) {
           onCancel();
         }
       }}

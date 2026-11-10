@@ -42,7 +42,9 @@ export function HistoryDialog({
         event.preventDefault();
         onClose();
       }}
-      onClose={onClose}
+      onClose={(event) => {
+        if (open && !event.currentTarget.open) onClose();
+      }}
     >
       <header className="dialog-header">
         <div>

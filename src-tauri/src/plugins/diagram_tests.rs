@@ -1,7 +1,5 @@
-use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use tar::Builder;
 use tempfile::TempDir;
 
 use super::{
@@ -9,7 +7,7 @@ use super::{
     catalog::validate_catalog,
     commands::validate_export_svg,
     package::{sha256_file, validate_extracted_package, validate_installed_package},
-    tests::manager,
+    tests::{manager, package_bytes_with_entrypoints},
 };
 
 const PLUGIN_ID: &str = "denote.synthetic-diagram";
@@ -48,59 +46,12 @@ fn catalog() -> PluginCatalogEntry {
     .expect("synthetic catalog")
 }
 
-fn append(builder: &mut Builder<GzEncoder<Vec<u8>>>, path: &str, content: &[u8]) {
-    let mut header = tar::Header::new_gnu();
-    header.set_size(content.len() as u64);
-    header.set_mode(0o644);
-    header.set_cksum();
-    builder
-        .append_data(&mut header, path, content)
-        .expect("append");
-}
-
 fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
     package_bytes_with_entrypoints(
         catalog,
         b"export default {};",
         b"export async function renderDiagram() { return {}; }",
     )
-}
-
-fn package_bytes_with_entrypoints(
-    catalog: &PluginCatalogEntry,
-    worker: &[u8],
-    renderer: &[u8],
-) -> Vec<u8> {
-    let encoder = GzEncoder::new(Vec::new(), Compression::default());
-    let mut builder = Builder::new(encoder);
-    append(
-        &mut builder,
-        "plugin.json",
-        &serde_json::to_vec(&catalog.manifest).expect("manifest"),
-    );
-    append(&mut builder, &catalog.manifest.entrypoint, worker);
-    append(
-        &mut builder,
-        &catalog
-            .manifest
-            .diagram_renderer
-            .as_ref()
-            .expect("renderer")
-            .entrypoint,
-        renderer,
-    );
-    append(
-        &mut builder,
-        &catalog.manifest.documentation,
-        b"# Synthetic diagram renderer",
-    );
-    append(&mut builder, &catalog.manifest.icon, b"<svg></svg>");
-    append(&mut builder, "package.json", br#"{"private":true}"#);
-    builder
-        .into_inner()
-        .expect("archive")
-        .finish()
-        .expect("gzip")
 }
 
 fn fixture(mut catalog: PluginCatalogEntry) -> (TempDir, TempDir, PluginManager) {

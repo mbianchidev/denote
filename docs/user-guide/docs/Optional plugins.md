@@ -30,6 +30,10 @@ declared permissions, and then start it. Simply enabling a plugin must not edit
 your notes. Actions that change vault content require both your explicit action
 and write permission.
 
+Open or unlock a vault before enabling or updating a plugin that needs vault
+content. A lock during preparation cancels the attempt without starting a
+content worker. Metadata-only clocks can still run while a vault is locked.
+
 Turning a plugin off stops its isolated worker, removes its commands and views,
 and deletes its downloaded executable package, cached archive, staging content,
 and removal backups. Only its catalog listing remains for a later reinstall. It
@@ -105,6 +109,52 @@ missing paths once, including after unlock as ciphertext in encrypted Welcome
 vaults. Existing files and earlier migration markers stay untouched; samples
 deleted after their set was applied are not restored on later launches.
 Opening an example never installs a plugin or initializes Git.
+
+## Startup safe mode
+
+Quit Denote completely, then launch its executable with `--safe-mode`. On macOS,
+use `open -a Denote --args --safe-mode`; use the **Denote Development** application
+name instead when testing an unpublished development build. On Windows, pass
+`--safe-mode` to the installed `denote.exe`; on Linux, run `denote --safe-mode`
+or pass the flag to the AppImage.
+
+Safe mode keeps the core editor available without starting plugin workers,
+running their native tools, or installing or updating packages. A **Safe mode**
+status and a notice in **Settings → Plugins** explain the paused state.
+Approved package settings and enablement are retained; safe mode does not turn
+plugins off permanently. Normal integrity recovery and temporary development
+archive cleanup still apply.
+
+You can inspect guides, disable and remove code, or explicitly clear plugin data
+and credentials. Timer-stop metadata is still recorded when disabling a timer
+plugin. Restart without the flag to restore normally enabled plugins. The flag
+applies only to a new process, not an already-running Denote instance.
+
+## Privacy and external connections
+
+Denote has no analytics or telemetry integration, and plugins receive no
+telemetry API. The following network paths have separate purposes and controls:
+
+- **Load remote images** in **Settings → Editor** is off by default. Local images
+  still work. Enabling it allows HTTP/HTTPS images in notes, read views and
+  presentations; image hosts receive the requested URL and ordinary connection
+  metadata. Denote sends no browser referrer. Turning it off blocks active
+  remote image previews and survives restart without editing the note.
+- Allowed external domains govern opening web links in your browser. Those
+  approvals do not enable remote images.
+- Application updates contact the configured GitHub channel after startup and
+  verify downloaded updates before an explicit restart. Plugin downloads need
+  package approval; optional permission-preserving automatic plugin updates
+  require their own opt-in.
+- Git remotes, model downloads, and other explicit transfers follow their
+  documented actions. Approved native tools have ordinary OS permissions and
+  their own network/privacy settings; the image switch is not a native sandbox.
+- Bug reporting opens a redacted, editable draft in your browser. Denote never
+  submits the issue automatically.
+
+Image consent stores only a boolean in local application preferences, not image
+URLs, credentials, or Markdown content. Corrupt or unavailable preference
+storage leaves images blocked and reports the failure.
 
 ## Advanced authoring
 

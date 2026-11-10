@@ -44,6 +44,8 @@ describe("PluginGuide", () => {
       .toBe("EM");
     expect(within(section as HTMLElement).getByText("synthetic reminder").tagName)
       .toBe("CODE");
+    expect(within(section as HTMLElement).getByText("synthetic reminder").closest("pre"))
+      .toHaveAttribute("tabindex", "0");
     expect(section).not.toHaveTextContent("**");
     expect(section).not.toHaveTextContent("```");
   });

@@ -9,5 +9,16 @@
       "sha256": "b42ef8cec0d3d0096c994e87c2aa79f0130371e472d4708262184ebbc88ad12c",
       "sizeBytes": 68463
     }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/text-styling",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.text-styling-0.1.1.tgz",
+      "sha256": "8cbe4309dbda60e3475341ea5ce0fe45a3865b2b0bc16d25b9a9c2290171f652",
+      "sizeBytes": 68578
+    }
   }
 ]

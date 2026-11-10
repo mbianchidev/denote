@@ -40,6 +40,41 @@ const tabs: EditorTab[] = [
 ];
 
 describe("Tabs", () => {
+  it("keeps keyboard navigation in its owning pane when the same files are open elsewhere", async () => {
+    const user = userEvent.setup();
+    const activateSecond = vi.fn();
+    const pane = (label: string, onActivate: (path: string) => void) => (
+      <Tabs
+        label={label}
+        tabs={tabs}
+        groups={[]}
+        activePath="one.md"
+        disabled={false}
+        onActivate={onActivate}
+        onClose={vi.fn()}
+        onCloseMany={vi.fn()}
+        onReorder={vi.fn()}
+        onNewTab={vi.fn()}
+        onToggleGroup={vi.fn()}
+        onCreateGroup={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onMoveToGroup={vi.fn()}
+      />
+    );
+    render(<>{pane("Pane one", vi.fn())}{pane("Pane two", activateSecond)}</>);
+    const first = screen.getAllByRole("tab", { name: /one\.md/ });
+    const second = screen.getAllByRole("tab", { name: /two\.md/ });
+
+    await user.click(first[1]);
+    await user.keyboard("{ArrowRight}");
+
+    expect(activateSecond).toHaveBeenLastCalledWith("two.md");
+    expect(second[1]).toHaveFocus();
+    expect(second[0]).not.toHaveFocus();
+    expect(screen.getByRole("tablist", { name: "Pane two" }))
+      .toHaveAttribute("aria-owns", `${first[1].id} ${second[1].id}`);
+  });
+
   it("activates and closes files through accessible controls", async () => {
     const user = userEvent.setup();
     const onActivate = vi.fn();

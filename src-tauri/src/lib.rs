@@ -246,7 +246,10 @@ pub fn run() {
     }
     tauri::Builder::default()
         .plugin(GuardedPlugin(tauri_plugin_single_instance::init(
-            |app, _, _| {
+            |app, arguments, _| {
+                if arguments.iter().any(|argument| argument == "--safe-mode") {
+                    eprintln!("Safe mode requires a new Denote process. Quit Denote, then restart with --safe-mode.");
+                }
                 if let Some(window) = app.get_webview_window("main") {
                     if let Err(error) = window.show() {
                         eprintln!("Unable to show existing Denote window: {error}");
@@ -301,6 +304,7 @@ pub fn run() {
                 app_cache_dir.clone(),
                 resource_dir,
                 app.config().identifier.clone(),
+                std::env::args_os().any(|argument| argument == "--safe-mode"),
             ));
             let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
@@ -404,6 +408,7 @@ pub fn run() {
             updater::download_update,
             updater::discard_prepared_update,
             updater::install_prepared_update,
+            plugins::get_plugin_startup_mode,
             plugins::list_plugins,
             plugins::list_plugin_bundles,
             plugins::choose_development_plugin_archive,

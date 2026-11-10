@@ -517,6 +517,7 @@ impl PluginManager {
         &self,
         repository: Option<&Path>,
     ) -> AppResult<SigningSelection> {
+        self.ensure_runtime_allowed()?;
         self.catalog_entry(PLUGIN_ID)?;
         let operation =
             self.register_git_operation(PLUGIN_ID, &uuid::Uuid::new_v4().to_string())?;

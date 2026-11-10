@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { RemoteImagesAllowedContext, useRemoteImagePreference } from "./lib/remoteImages";
 import { listen } from "@tauri-apps/api/event";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { forceParsing, syntaxTree } from "@codemirror/language";
@@ -1673,6 +1674,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     },
     [showError],
   );
+  const remoteImages = useRemoteImagePreference(showError);
   const toggleTheme = useCallback(() => {
     updateThemePreference(theme === "dark" ? "light" : "dark");
   }, [theme, updateThemePreference]);
@@ -10253,10 +10255,13 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
       restoreTabsAvailable={workspace !== null}
       externalDomains={externalDomainPolicy.domains}
       allowAllExternalDomains={externalDomainPolicy.allowAll}
+      remoteImagesAllowed={remoteImages.allowed}
+      onRemoteImagesAllowedChange={remoteImages.update}
       plugins={pluginController.plugins}
       pluginBundles={pluginController.bundles}
       pluginDevelopmentSupported={pluginController.developmentSupported}
       pluginDevelopmentLoading={pluginController.developmentLoading}
+      pluginSafeMode={pluginController.safeMode}
       activeProject={activeProject}
       pluginsLoading={pluginController.loading}
       busyPluginIds={pluginController.busyPluginIds}
@@ -10754,7 +10759,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     );
     if ((authoringProviders.length || speechTool) && paneTab.encoding === "utf8" && /\.(md|markdown)$/i.test(paneTab.path) &&
         !paneTab.transient && !paneKanbanBoard && !paneStructuredViewer) {
-      return <AdvancedAuthoring key={`${workspace.vaultPath}:${pane.id}:${paneTab.path}:${paneTab.editorRevision}:${speechTool?.pluginId ?? "no-speech"}`}
+      return <AdvancedAuthoring key={`${workspace.vaultPath}:${pane.id}:${paneTab.path}:${paneTab.editorRevision}`}
         path={paneTab.path} source={paneTab.content} readOnly={paneReadOnly} active={pane.id === focusedPaneId && !workspaceLocked}
         providers={authoringProviders} lineEnding={paneTab.lineEnding} displaySettings={paneDisplaySettings}
         nativeFullscreen={nativeFullscreenHost.enter}
@@ -10872,6 +10877,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
   ) : undefined;
 
   return (
+    <RemoteImagesAllowedContext.Provider value={remoteImages.allowed}>
     <div
       className="app-shell"
       style={
@@ -11853,6 +11859,11 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
               systemPathForDisplay(workspace.vaultPath)}
           </span>
           <span className="status-bar__spacer" />
+          {pluginController.safeMode ? (
+            <span title="Plugins are paused until Denote restarts without --safe-mode.">
+              Safe mode
+            </span>
+          ) : null}
           {primaryTimeTracker && (primaryTimer || primaryTimeTrackingState?.model?.activeElsewhere) ? (
             <button className="secondary-button status-bar__timer" type="button"
               onClick={() => showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id, "notes")}>
@@ -11990,6 +12001,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
         onCancel={() => finishActionDialog(null)}
       />
     </div>
+    </RemoteImagesAllowedContext.Provider>
   );
 }
 

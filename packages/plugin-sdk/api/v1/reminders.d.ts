@@ -1,0 +1,24 @@
+import type { PluginReminderModel, PluginReminderMutationRequest, PluginReminderQuery, PluginReminderRecurrence, PluginReminderTargetsModel, PluginReminderTargetsRequest } from "./contracts";
+export declare const MAX_PLUGIN_REMINDER_DOCUMENT_BYTES: number;
+export declare const MAX_PLUGIN_REMINDER_TARGETS = 512;
+export declare const MAX_PLUGIN_REMINDERS = 128;
+export declare const MAX_PLUGIN_REMINDER_TITLE_BYTES = 512;
+export declare const MAX_PLUGIN_REMINDER_NOTIFICATION_TITLE_BYTES = 120;
+export declare const MAX_PLUGIN_REMINDER_NOTIFICATION_BODY_BYTES = 1024;
+export declare const MAX_PLUGIN_REMINDER_ERROR_BYTES = 2048;
+export declare const MAX_PLUGIN_REMINDER_DELIVERY_ATTEMPTS = 10000;
+export declare const MAX_PLUGIN_REMINDER_RECURRENCE_INTERVAL = 999;
+export declare function isPluginReminderRegistration(value: unknown): value is {
+    id: string;
+    title: string;
+    defaultSnoozeMinutes: number;
+};
+export declare function isPluginReminderTargetsRequest(value: unknown): value is PluginReminderTargetsRequest;
+export declare function isPluginReminderTargetsModel(value: unknown): value is PluginReminderTargetsModel;
+export declare function isPluginReminderQuery(value: unknown): value is PluginReminderQuery;
+export declare function isPluginReminderMutationRequest(value: unknown): value is PluginReminderMutationRequest;
+export declare function isPluginReminderModel(value: unknown): value is PluginReminderModel;
+export declare function isReminderLocalDateTime(value: unknown): value is string;
+export declare function isReminderTimeZone(value: unknown): value is string;
+export declare function truncateUtf8(value: string, maxBytes: number): string;
+export declare function isPluginReminderRecurrence(value: unknown): value is PluginReminderRecurrence;

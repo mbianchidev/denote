@@ -138,6 +138,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   launching a shell. Tabs keep their captured project roots, offer keyboard
   input, resize, search and reviewed links, and warn before closing running
   jobs. Vault switches, disable and shutdown terminate sessions.
+- Starting with `--safe-mode` preserves core editing while pausing plugin
+  workers, native capabilities, installation and updates. Approved settings and
+  enablement remain intact. Explicit package/data/credential recovery stays
+  available, and restarting without the flag restores verified plugin startup.
 - Baseline source syntax highlighting uses one filename-driven core
   CodeMirror language registry. Its bundled baseline covers JavaScript, JSX,
   TypeScript, TSX, Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby,
@@ -149,6 +153,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Fortran, Julia, Perl, Pascal, VB.NET, Cobol, Puppet, Common Lisp,
   Terraform/HCL, Helm templates, and common SQL dialects.
 - Images retain their visual preview and can switch to raw editing.
+- Remote HTTP/HTTPS images are blocked until **Load remote images** is explicitly
+  enabled in Settings. Local images remain available. Revocation applies to
+  active views and persists across restart without changing note source.
 - Rich Markdown editing is the default in every pane.
 - Opening, focusing, and switching Rich/Source views do not edit or autosave
   a note. Original trailing spaces, tabs, and blank lines stay in its source.
