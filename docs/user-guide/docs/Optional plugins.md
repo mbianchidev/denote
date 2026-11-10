@@ -106,6 +106,26 @@ vaults. Existing files and earlier migration markers stay untouched; samples
 deleted after their set was applied are not restored on later launches.
 Opening an example never installs a plugin or initializes Git.
 
+## Startup safe mode
+
+Quit Denote completely, then launch its executable with `--safe-mode`. On macOS,
+use `open -a Denote --args --safe-mode`; use the **Denote Development** application
+name instead when testing an unpublished development build. On Windows, pass
+`--safe-mode` to the installed `denote.exe`; on Linux, run `denote --safe-mode`
+or pass the flag to the AppImage.
+
+Safe mode keeps the core editor available without starting plugin workers,
+running their native tools, or installing or updating packages. A **Safe mode**
+status and a notice in **Settings → Plugins** explain the paused state.
+Approved package settings and enablement are retained; safe mode does not turn
+plugins off permanently. Normal integrity recovery and temporary development
+archive cleanup still apply.
+
+You can inspect guides, disable and remove code, or explicitly clear plugin data
+and credentials. Timer-stop metadata is still recorded when disabling a timer
+plugin. Restart without the flag to restore normally enabled plugins. The flag
+applies only to a new process, not an already-running Denote instance.
+
 ## Advanced authoring
 
 Text highlighting and coloring, Note comments, and Markdown presentation slides

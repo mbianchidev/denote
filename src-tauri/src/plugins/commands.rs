@@ -64,6 +64,11 @@ where
 }
 
 #[tauri::command]
+pub fn get_plugin_startup_mode(state: State<'_, PluginManager>) -> bool {
+    state.safe_mode()
+}
+
+#[tauri::command]
 pub fn list_plugins(state: State<'_, PluginManager>) -> AppResult<Vec<PluginView>> {
     state.list()
 }

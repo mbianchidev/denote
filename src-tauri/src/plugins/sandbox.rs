@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::Read,
     path::Path,
@@ -161,30 +161,17 @@ impl PluginManager {
         plugin_id: &str,
         permission: Option<&str>,
     ) -> AppResult<()> {
-        let pending = self.pending_transactions()?;
-        let prepared_permissions = pending
-            .values()
-            .find(|transaction| transaction.plugin_id == plugin_id)
-            .map(|transaction| transaction.permissions.clone());
-        drop(pending);
-        let state = self.state()?;
-        let permissions = if let Some(permissions) = prepared_permissions {
-            permissions
-        } else if state.enabled.contains(plugin_id) {
-            state
-                .approved_permissions
-                .get(plugin_id)
-                .cloned()
-                .ok_or_else(|| {
-                    AppError::Plugin(format!(
-                        "Plugin {plugin_id} has no approved permission record"
-                    ))
-                })?
-        } else {
-            return Err(AppError::Plugin(format!(
-                "Plugin {plugin_id} is not enabled"
-            )));
-        };
+        self.ensure_runtime_allowed()?;
+        self.authorize_metadata(plugin_id, permission)
+    }
+
+    // Host-owned timer-stop journals and metadata recovery remain available in safe mode.
+    pub(super) fn authorize_metadata(
+        &self,
+        plugin_id: &str,
+        permission: Option<&str>,
+    ) -> AppResult<()> {
+        let permissions = self.approved_permissions(plugin_id)?;
         if let Some(permission) = permission
             && !permissions
                 .iter()
@@ -197,11 +184,7 @@ impl PluginManager {
         Ok(())
     }
 
-    pub(crate) fn enabled_permission(
-        &self,
-        plugin_id: &str,
-        capability: &str,
-    ) -> AppResult<PluginPermission> {
+    fn approved_permissions(&self, plugin_id: &str) -> AppResult<BTreeSet<PluginPermission>> {
         let pending = self.pending_transactions()?;
         let prepared_permissions = pending
             .values()
@@ -226,10 +209,18 @@ impl PluginManager {
                 "Plugin {plugin_id} is not enabled"
             )));
         };
-        permissions
-            .iter()
+        Ok(permissions)
+    }
+
+    pub(crate) fn enabled_permission(
+        &self,
+        plugin_id: &str,
+        capability: &str,
+    ) -> AppResult<PluginPermission> {
+        self.ensure_runtime_allowed()?;
+        self.approved_permissions(plugin_id)?
+            .into_iter()
             .find(|permission| permission.capability == capability)
-            .cloned()
             .ok_or_else(|| {
                 AppError::Plugin(format!(
                     "Plugin {plugin_id} did not declare {capability} permission"

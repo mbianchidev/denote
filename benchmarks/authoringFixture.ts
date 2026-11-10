@@ -104,6 +104,7 @@ const credentialEntries = [{
 mockWindows("main");
 mockIPC((command, payload) => {
   switch (command) {
+    case "get_plugin_startup_mode": return window.__DENOTE_SAFE_MODE__ === true;
     case "stop_sensitive_tools": return null;
     case "open_external_uri": state.externalLinks.push(argument(payload, "uri")); return null;
     case "speech_engine_status": return {

@@ -345,6 +345,7 @@ export const api = {
       dataBase64,
     });
   },
+  getPluginStartupMode: () => invoke<boolean>("get_plugin_startup_mode"),
   listPlugins: () => invoke<PluginView[]>("list_plugins"),
   listPluginBundles: () =>
     invoke<PluginBundleMetadata[]>("list_plugin_bundles"),

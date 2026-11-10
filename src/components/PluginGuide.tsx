@@ -98,7 +98,7 @@ function renderBlock(node: RootContent, key: string): ReactNode {
     }
     case "code":
       return (
-        <pre key={key}>
+        <pre key={key} tabIndex={0}>
           <code className={node.lang ? `language-${node.lang}` : undefined}>
             {node.value}
           </code>
@@ -108,7 +108,7 @@ function renderBlock(node: RootContent, key: string): ReactNode {
       return <hr key={key} />;
     case "html":
       return (
-        <pre key={key}>
+        <pre key={key} tabIndex={0}>
           <code>{node.value}</code>
         </pre>
       );

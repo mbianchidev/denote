@@ -1,0 +1,16 @@
+# Historical synthetic password-protected PDF bytes, not a service credential.
+190278212b08a7aee51c7f523e17c0d868436403:src/test/pdfFixtures.ts:generic-api-key:1
+
+# Public signing-key SHA-256 digests in the bundled-tool lockfile.
+03352b32f0b360adee6031682c5d3df30315859f:bundled-tools.lock.json:generic-api-key:25
+3d53e7321ce22a971ef30546362bc3d937aa343e:bundled-tools.lock.json:generic-api-key:26
+72eee3e39bb02a7edab0f875eb4ab9bea6f51386:bundled-tools.lock.json:generic-api-key:25
+
+# Synthetic public signing-key identifiers in settings fixtures.
+3a53c904e7f8b30fa50af719f2f91e413c52fac7:packages/plugins/denote.git/tests/settings.test.ts:generic-api-key:39
+3a53c904e7f8b30fa50af719f2f91e413c52fac7:packages/plugins/denote.git/tests/settings.test.ts:generic-api-key:46
+3a53c904e7f8b30fa50af719f2f91e413c52fac7:src/components/PluginSettingsPanel.test.tsx:generic-api-key:455
+
+# ARIA keyboard-shortcut strings, not authentication tokens.
+4d0896a099af0cb9fc573351b4f153f89a88c67d:src/components/Tabs.tsx:generic-api-key:213
+3cf734ab31a6930de1599fc344d23b9c7ee5db82:src/components/Tabs.tsx:generic-api-key:117

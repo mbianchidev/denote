@@ -400,6 +400,9 @@ with normal controls. Activating **Update all** first opens an inline
 confirmation that lists exact plugin names and explains that the latest full
 permission sets will be accepted; it never hides this security consequence
 behind a progress button.
+Startup safe mode uses the shared informational notice and a persistent status
+label. Enabled packages read **Paused in safe mode**; activation, updates and
+executable setup stay disabled, while explicit recovery remains available.
 An enabled plugin with an update keeps its installed-version settings and
 runtime until the user chooses **Review and update** or **Update all**; the
 expanded entry shows both installed and available versions when they differ.

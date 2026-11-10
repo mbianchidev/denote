@@ -34,6 +34,7 @@ interface EditorSettingsDialogProps {
   pluginBundles: PluginBundleMetadata[];
   pluginDevelopmentSupported?: boolean;
   pluginDevelopmentLoading?: boolean;
+  pluginSafeMode?: boolean;
   activeProject: ProjectRoot | null;
   pluginsLoading: boolean;
   busyPluginIds: ReadonlySet<string>;
@@ -86,6 +87,7 @@ export function EditorSettingsDialog({
   pluginBundles,
   pluginDevelopmentSupported = false,
   pluginDevelopmentLoading = false,
+  pluginSafeMode = false,
   activeProject,
   pluginsLoading,
   busyPluginIds,
@@ -404,6 +406,7 @@ export function EditorSettingsDialog({
           onConfigure={appLock.configure} onLock={appLock.lock} />
       ) : (
         <PluginSettingsPanel
+          safeMode={pluginSafeMode}
           plugins={plugins}
           bundles={pluginBundles}
           developmentSupported={pluginDevelopmentSupported}

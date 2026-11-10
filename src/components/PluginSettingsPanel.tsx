@@ -79,6 +79,7 @@ const PERMISSION_LABELS: Record<string, string> = {
 };
 
 interface PluginSettingsPanelProps {
+  safeMode?: boolean;
   plugins: PluginView[];
   bundles: PluginBundleMetadata[];
   developmentSupported?: boolean;
@@ -114,6 +115,7 @@ interface PluginSettingsPanelProps {
 }
 
 export function PluginSettingsPanel({
+  safeMode = false,
   plugins,
   bundles,
   developmentSupported = false,
@@ -188,6 +190,9 @@ export function PluginSettingsPanel({
   }, [dirtyPluginIds, plugins]);
 
   useEffect(() => {
+    if (safeMode) {
+      return;
+    }
     const gitPlugin = plugins.find(
       (plugin) => plugin.catalog.manifest.id === "denote.git",
     );
@@ -208,7 +213,7 @@ export function PluginSettingsPanel({
     return () => {
       cancelled = true;
     };
-  }, [onError, onInspectTools, plugins]);
+  }, [onError, onInspectTools, plugins, safeMode]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -269,7 +274,7 @@ export function PluginSettingsPanel({
       next.delete(pluginId);
       return next;
     });
-    if (pluginId === "denote.git") {
+    if (pluginId === "denote.git" && !safeMode) {
       void onInspectTools(pluginId)
         .then((statuses) => setToolStatuses((current) => ({
           ...current,
@@ -300,7 +305,7 @@ export function PluginSettingsPanel({
           <button
             type="button"
             className="secondary-button"
-            disabled={developmentLoading}
+            disabled={safeMode || developmentLoading}
             aria-busy={developmentLoading}
             onClick={() => void onLoadDevelopment().catch(onError)}
           >
@@ -309,6 +314,16 @@ export function PluginSettingsPanel({
           </button>
         ) : null}
       </header>
+
+      {safeMode ? (
+        <div className="notice-block notice-block--info" role="status">
+          <Info aria-hidden="true" size={15} />
+          <p>
+            Plugins are paused in safe mode. Quit Denote and restart without --safe-mode
+            to restore them. You can still disable packages or clear their data.
+          </p>
+        </div>
+      ) : null}
 
       {developmentLoading ? (
         <p className="plugin-settings__empty" role="status">
@@ -336,6 +351,7 @@ export function PluginSettingsPanel({
               id="plugin-auto-update-toggle"
               type="checkbox"
               checked={autoUpdateEnabled}
+              disabled={safeMode || loading}
               onChange={(event) =>
                 onSetAutoUpdateEnabled(event.currentTarget.checked)
               }
@@ -347,7 +363,7 @@ export function PluginSettingsPanel({
               type="button"
               className="primary-button"
               aria-label={`Update all approved plugins (${approvedUpdates.length})`}
-              disabled={loading || approvedUpdates.some((plugin) =>
+              disabled={safeMode || loading || approvedUpdates.some((plugin) =>
                 busyPluginIds.has(plugin.catalog.manifest.id),
               )}
               onClick={() => setPendingUpdateAll(true)}
@@ -389,6 +405,7 @@ export function PluginSettingsPanel({
             <button
               type="button"
               className="primary-button"
+              disabled={safeMode}
               onClick={() =>
                 void onUpdateAll()
                   .then(() => setPendingUpdateAll(false))
@@ -498,9 +515,9 @@ export function PluginSettingsPanel({
                           {manifest.name}
                         </span>
                         <span
-                          className={`plugin-status plugin-status--${plugin.status}`}
+                          className={`plugin-status plugin-status--${safeMode && plugin.enabled ? "disabled" : plugin.status}`}
                         >
-                          {statusLabel(plugin)}
+                          {safeMode && plugin.enabled ? "Paused in safe mode" : statusLabel(plugin)}
                         </span>
                       </summary>
                       <div className="plugin-card__body">
@@ -587,10 +604,10 @@ export function PluginSettingsPanel({
                         {Object.keys(settingDefinitions).length > 0 ? (
                           <fieldset
                             className="plugin-card__settings"
-                            disabled={busy}
+                            disabled={safeMode || busy}
                           >
                             <legend>Settings</legend>
-                            {pluginId === "denote.git" && gitSigningActions ? (
+                            {pluginId === "denote.git" && gitSigningActions && !safeMode ? (
                               <GitSigningSettings
                                 {...gitSigningActions}
                                 settings={plugin.settings}
@@ -809,7 +826,7 @@ export function PluginSettingsPanel({
                               <button
                                 type="button"
                                 className="primary-button"
-                                disabled={busy}
+                                disabled={safeMode || busy}
                                 onClick={() =>
                                   void onEnable(
                                     pluginId,
@@ -835,7 +852,7 @@ export function PluginSettingsPanel({
                               <button
                                 type="button"
                                 className="primary-button"
-                                disabled={busy}
+                                disabled={safeMode || busy}
                                 onClick={() => setPendingEnable(pluginId)}
                               >
                                 Review and update
@@ -845,7 +862,7 @@ export function PluginSettingsPanel({
                                 type="button"
                                 className="primary-button"
                                 disabled={
-                                  busy || plugin.status === "incompatible"
+                                  safeMode || busy || plugin.status === "incompatible"
                                 }
                                 onClick={() => setPendingEnable(pluginId)}
                               >

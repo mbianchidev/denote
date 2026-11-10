@@ -63,6 +63,7 @@ const { runtimeInstances, callOrder } = vi.hoisted(() => ({
 
 vi.mock("../lib/api", () => ({
   api: {
+    getPluginStartupMode: vi.fn(),
     listPlugins: vi.fn(),
     listPluginBundles: vi.fn(),
     preparePluginEnable: vi.fn(),
@@ -316,6 +317,7 @@ const reportError = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.getPluginStartupMode).mockReset().mockResolvedValue(false);
   vi.mocked(api.setPluginSettings).mockReset().mockResolvedValue({});
   vi.mocked(api.getPluginSettings).mockReset().mockResolvedValue({});
   vi.mocked(api.listPluginBundles).mockResolvedValue([]);
@@ -325,6 +327,25 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it("keeps approved plugins stopped in startup safe mode without deleting their settings or packages", async () => {
+    vi.mocked(api.getPluginStartupMode).mockResolvedValue(true);
+    const enabled = makePlugin({
+      enabled: true,
+      status: "enabled",
+      approvedPermissions: catalog.manifest.permissions,
+      previouslyApproved: true,
+    });
+    const { result } = await mountReady([enabled]);
+
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.disablePlugin).not.toHaveBeenCalled();
+    expect(result.current.plugins).toEqual([enabled]);
+    expect(result.current.safeMode).toBe(true);
+    await expect(result.current.enable(pluginId, catalog.manifest.permissions))
+      .rejects.toThrow(/safe mode/i);
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+  });
+
   it("does not re-enable a disabled plugin through Update all even with stale update metadata", async () => {
     const disabled = makePlugin({
       enabled: false,

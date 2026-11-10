@@ -1,0 +1,22 @@
+import type { PluginTaskListIndexRequest, PluginTaskListModel, PluginTaskListQuery, PluginTaskListToggleRequest, PluginTaskListToggleResult } from "./contracts";
+export declare const MAX_PLUGIN_TASK_LIST_DOCUMENTS = 5000;
+export declare const MAX_PLUGIN_TASK_LIST_SOURCE_BYTES: number;
+export declare const MAX_PLUGIN_TASK_LIST_INDEX_BYTES: number;
+export declare const MAX_PLUGIN_TASK_LIST_INDEX_DOCUMENTS = 256;
+export declare const MAX_PLUGIN_TASK_LIST_INDEX_REMOVALS = 512;
+export declare const MAX_PLUGIN_TASK_LIST_TOTAL_SOURCE_BYTES: number;
+export declare const MAX_PLUGIN_TASK_LIST_TASKS = 1000;
+export declare const MAX_PLUGIN_TASK_LIST_TAGS = 256;
+export declare const MAX_PLUGIN_TASK_LIST_TAGS_PER_TASK = 32;
+export declare const MAX_PLUGIN_TASK_LIST_HEADING_DEPTH = 12;
+export declare const MAX_PLUGIN_TASK_LIST_SOURCE_LINE_BYTES: number;
+export declare function isPluginTaskListRegistration(value: unknown): value is {
+    id: string;
+    title: string;
+};
+export declare function isPluginTaskListIndexRequest(value: unknown): value is PluginTaskListIndexRequest;
+export declare function isPluginTaskListQuery(value: unknown): value is PluginTaskListQuery;
+export declare function isPluginTaskListModel(value: unknown): value is PluginTaskListModel;
+export declare function isPluginTaskListToggleRequest(value: unknown): value is PluginTaskListToggleRequest;
+export declare function isPluginTaskListToggleResult(value: unknown): value is PluginTaskListToggleResult;
+export declare function isTaskListDate(value: unknown): value is string;

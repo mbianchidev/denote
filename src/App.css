@@ -20,7 +20,7 @@
   --editor-raised: #1d2023;
   --text-primary: #e8e5de;
   --text-secondary: #aaa9a2;
-  --text-tertiary: #858680;
+  --text-tertiary: #92938c;
   --border: #30343a;
   --border-strong: #42474e;
   --accent: #9fbe85;
@@ -120,7 +120,8 @@ button:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 summary:focus-visible,
-a:focus-visible {
+a:focus-visible,
+pre[tabindex]:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -1177,6 +1178,10 @@ button:disabled {
   --admonitionDangerBorder: var(--danger);
   --admonitionNoteBg: var(--editor-raised);
   --admonitionNoteBorder: var(--border-strong);
+}
+
+.denote-editor-root .mdxeditor-toolbar button[data-placeholder] > span:first-child {
+  color: var(--text-secondary);
 }
 
 .denote-editor-root [role="toolbar"] {

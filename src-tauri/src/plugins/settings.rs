@@ -235,6 +235,7 @@ impl PluginManager {
     }
 
     pub(crate) fn tool_statuses(&self, plugin_id: &str) -> AppResult<Vec<ToolStatus>> {
+        self.ensure_runtime_allowed()?;
         self.catalog_entry(plugin_id)?;
         let git_mode = self.git_executable_mode(plugin_id)?;
         let git_path = self.git_executable_setting(plugin_id)?;
@@ -335,7 +336,7 @@ impl PluginManager {
     }
 
     pub(crate) fn storage_get(&self, plugin_id: &str, key: &str) -> AppResult<Option<Value>> {
-        self.authorize_runtime(plugin_id, None)?;
+        self.authorize_metadata(plugin_id, None)?;
         validate_storage_key(key)?;
         Ok(self
             .state()?
@@ -345,7 +346,7 @@ impl PluginManager {
     }
 
     pub(crate) fn storage_set(&self, plugin_id: &str, key: &str, value: Value) -> AppResult<()> {
-        self.authorize_runtime(plugin_id, None)?;
+        self.authorize_metadata(plugin_id, None)?;
         validate_storage_key(key)?;
         self.update_state(|state| {
             let storage = state.storage.entry(plugin_id.to_string()).or_default();
@@ -356,7 +357,7 @@ impl PluginManager {
     }
 
     pub(crate) fn storage_delete(&self, plugin_id: &str, key: &str) -> AppResult<()> {
-        self.authorize_runtime(plugin_id, None)?;
+        self.authorize_metadata(plugin_id, None)?;
         validate_storage_key(key)?;
         self.update_state(|state| {
             if let Some(storage) = state.storage.get_mut(plugin_id) {
@@ -367,7 +368,7 @@ impl PluginManager {
     }
 
     pub(crate) fn storage_clear(&self, plugin_id: &str) -> AppResult<()> {
-        self.authorize_runtime(plugin_id, None)?;
+        self.authorize_metadata(plugin_id, None)?;
         self.update_state(|state| {
             state.storage.remove(plugin_id);
             Ok(())

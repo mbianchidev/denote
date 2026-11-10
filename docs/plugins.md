@@ -159,6 +159,16 @@ worker crash automatically terminates that runtime and removes its package.
 Renderer reload, shutdown, and disable-all recover or cancel native preparation
 transactions before another plugin can start.
 
+Starting a new application process with `--safe-mode` pauses plugin execution
+without changing persisted enablement or deleting approved packages. The native
+manager refuses entrypoint reads, package preparation/commit, executable probes,
+and runtime capabilities. The renderer waits for this native startup policy
+before restoring workers and also blocks explicit and automatic activation.
+Host-only namespace metadata and clock samples remain available for recovery
+and timer-stop journals; this does not authorize content access or execution.
+Disablement and explicit data/credential cleanup stay available. Restarting
+without the flag restores the normal verified startup path.
+
 Catalog version changes never execute an old package under new metadata. Denote
 keeps the installed manifest and approved permissions bound to the old package,
 marks the latest catalog entry update-available, and substitutes the new package
@@ -1395,6 +1405,33 @@ The initial catalog is first-party only. A plugin artifact is publishable when:
 retain the API major version. Breaking context, manifest, lifecycle, or
 capability changes increment `compatibility.apiVersion`, document migration,
 and keep the prior host contract for a stated deprecation window before removal.
+
+### API 1 freeze and deprecation policy
+
+The public API 1 baseline is the compiler-emitted declaration set in
+`packages/plugin-sdk/api/v1/`. `npm run check:plugin-api`, included in
+`check:plugins`, compares the complete exported types, function signatures and
+literal constants against that baseline. Internal implementation or comment
+changes do not require a new baseline. A changed declaration fails explicitly;
+the checker never rewrites the baseline during ordinary validation.
+
+API 1 remains supported throughout Denote 1.x. A deprecated API may gain a
+documented replacement, but cannot be removed or change meaning during that
+release line. Breaking changes require a new API major, a migration guide and a
+Denote major release after the full 1.x support window. No existing permission
+may silently gain broader access.
+
+From the v1.0 release candidate until v1.0.0, only release-blocking fixes are
+accepted. New capabilities, permission expansion and unrelated refactors are
+not candidate fixes. The freeze does not imply that manual accessibility,
+platform-installation or other readiness gates have passed.
+
+After review, an intentionally compatible future addition can update the
+baseline with `npm run check:plugin-api -- --update-baseline`; review its
+generated declaration diff, compatibility tests and migration documentation.
+Never regenerate the baseline merely to hide an unexpected failure or to admit
+a breaking API 1 change. Compiler upgrades also require declaration-diff review.
+The SDK package version, API major and application version remain independent.
 
 A vulnerable or compromised artifact is removed from its hosting ref when
 possible, recorded in the plugin issue, and marked with a catalog revocation

@@ -43,17 +43,33 @@ jobs:
     needs: plugin-archive-guard
     runs-on: ubuntu-latest
     permissions:
-      checks: write
       contents: read
-      issues: write
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
           cache: npm
+
+      - name: Scan tracked history for secrets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tool_dir="$RUNNER_TEMP/denote-gitleaks-8.30.1"
+          mkdir -p "$tool_dir"
+          gh release download v8.30.1 --repo gitleaks/gitleaks \
+            --pattern gitleaks_8.30.1_linux_x64.tar.gz --dir "$tool_dir"
+          unset GH_TOKEN
+          printf '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  %s\n' \
+            "$tool_dir/gitleaks_8.30.1_linux_x64.tar.gz" | sha256sum --check -
+          tar -xzf "$tool_dir/gitleaks_8.30.1_linux_x64.tar.gz" -C "$tool_dir" gitleaks
+          PATH="$tool_dir:$PATH" npm run check:secrets
 
       - name: Validate plugin packages before install
         run: node scripts/preinstall-validate-plugins.mjs
@@ -262,6 +278,9 @@ jobs:
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Staged plugin installation and recovery
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib staged_catalog_packages_complete_native_lifecycle -- --ignored
 
       - name: Windows private export access control
         if: runner.os == 'Windows'

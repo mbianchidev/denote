@@ -93,6 +93,7 @@ function configuration(value: ToolContext): ToolConfiguration {
 mockWindows("main");
 mockIPC((command, payload) => {
   switch (command) {
+    case "get_plugin_startup_mode": return window.__DENOTE_SAFE_MODE__ === true;
     case "get_runtime_info": return { operatingSystem: "linux", architecture: "x86_64", bundleType: "deb", updateChannel: "stable", updaterConfigured: false };
     case "get_app_lock_status": return {
       enabled: false, locked: false, passwordEnabled: false, deviceAuthenticationEnabled: false,

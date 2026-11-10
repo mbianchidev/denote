@@ -384,6 +384,15 @@ recovers transactions. CI rejects editor imports of plugin implementations,
 plugin imports of editor/Tauri internals, and direct plugin-to-plugin
 dependencies.
 
+Startup safe mode is an immutable native manager policy captured from
+`--safe-mode`, not a URL or downloaded-plugin setting. The renderer reads it
+before restoring workers; native authorization also refuses entrypoint reads,
+installation, updates, executable probes and privileged runtime calls. Explicit
+recovery keeps approved namespace metadata and non-executing clock samples
+available for timer-stop journals, without permitting vault content or external
+execution. Safe mode retains persisted enablement rather than disabling every
+package as a side effect of launch.
+
 The plugin catalog accepts metadata, not executable modules. Catalog display is
 therefore safe before enablement and cannot run plugin code. Release preparation
 rewrites each current catalog URL to the matching versioned GitHub Release asset,

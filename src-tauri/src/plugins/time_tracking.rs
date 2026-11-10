@@ -36,7 +36,7 @@ pub fn plugin_time_tracking_clock(
     state: State<'_, PluginManager>,
     plugin_id: String,
 ) -> AppResult<TimeTrackingClock> {
-    state.enabled_permission(&plugin_id, "time-tracking")?;
+    state.authorize_metadata(&plugin_id, Some("time-tracking"))?;
     read_clock(&plugin_id)
 }
 
@@ -70,7 +70,7 @@ pub fn plugin_clock_sample(
     state: State<'_, PluginManager>,
     plugin_id: String,
 ) -> AppResult<TimeTrackingClock> {
-    state.enabled_permission(&plugin_id, "clocks")?;
+    state.authorize_metadata(&plugin_id, Some("clocks"))?;
     read_clock(&plugin_id)
 }
 

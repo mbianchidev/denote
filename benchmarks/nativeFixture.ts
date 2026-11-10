@@ -1,5 +1,5 @@
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import type { AppLockStatus, DocumentBatch, FileNode, NoteStats, WorkspaceSnapshot } from "../src/types";
+import type { AppLockStatus, DocumentBatch, FileNode, NoteStats, PluginView, WorkspaceSnapshot } from "../src/types";
 
 interface BenchmarkState {
   inputLatencies: number[];
@@ -18,6 +18,9 @@ declare global {
     __DENOTE_BENCHMARK__: BenchmarkState;
     __DENOTE_LARGE_INDEX__?: boolean;
     __DENOTE_APP_LOCK__?: AppLockStatus;
+    __DENOTE_SAFE_MODE__?: boolean;
+    __DENOTE_PLUGIN_CATALOG__?: PluginView[];
+    __DENOTE_SMALL_TREE__?: boolean;
   }
 }
 
@@ -103,7 +106,8 @@ const snapshot: WorkspaceSnapshot = {
     ...(window.__DENOTE_LARGE_INDEX__ ? [{
       ...node("Archive"), kind: "folder" as const,
       children: Object.keys(documents).filter((path) => path.startsWith("Archive/")).map(node),
-    }] : Array.from({ length: 3000 }, (_, index) => node(`Synthetic ${index}.txt`))),
+    }] : window.__DENOTE_SMALL_TREE__ ? [] :
+      Array.from({ length: 3000 }, (_, index) => node(`Synthetic ${index}.txt`))),
   ],
   bookmarks: [],
   recent: [],
@@ -155,6 +159,7 @@ mockIPC((command, payload) => {
     throw new Error("Denote is locked.");
   }
   switch (command) {
+    case "get_plugin_startup_mode": return window.__DENOTE_SAFE_MODE__ === true;
     case "get_app_lock_status":
       return structuredClone(state.appLock);
     case "unlock_app_with_password":
@@ -182,6 +187,9 @@ mockIPC((command, payload) => {
     case "refresh_vault":
       return snapshot;
     case "list_plugins":
+      return structuredClone(window.__DENOTE_PLUGIN_CATALOG__ ?? []);
+    case "get_plugin_tool_statuses":
+      return [];
     case "list_plugin_bundles":
     case "list_known_vaults":
     case "list_history":

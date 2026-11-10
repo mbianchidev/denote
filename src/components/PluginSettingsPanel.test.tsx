@@ -72,6 +72,36 @@ async function expandPlugin(
 }
 
 describe("PluginSettingsPanel", () => {
+  it("explains safe mode, blocks activation and keeps package recovery available", async () => {
+    const user = userEvent.setup();
+    const gitCatalog: unknown = catalogJson.find((entry) => entry.manifest.id === "denote.git");
+    assertValidPluginCatalogEntry(gitCatalog);
+    const onInspectTools = vi.fn().mockResolvedValue([]);
+    const options = props({
+      safeMode: true,
+      developmentSupported: true,
+      autoUpdateEnabled: true,
+      plugins: [
+        plugin({ enabled: true, status: "update-available", previouslyApproved: true }),
+        plugin({ catalog: gitCatalog }),
+      ],
+      onInspectTools,
+    });
+    render(<PluginSettingsPanel {...options} />);
+
+    expect(screen.getByText(/restart without --safe-mode/i)).toBeVisible();
+    expect(screen.getByText("Paused in safe mode", { exact: true })).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: "Automatically update plugins" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Load local plugin archive" })).toBeDisabled();
+    expect(onInspectTools).not.toHaveBeenCalled();
+    await expandPlugin(user);
+    expect(screen.getByRole("button", { name: "Review and update" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Disable and remove code" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Disable all plugins" }));
+    await waitFor(() => expect(options.onDisableAll).toHaveBeenCalledOnce());
+    expect(options.onEnable).not.toHaveBeenCalled();
+  });
+
   it("collapses plugins to their name and status until opened", async () => {
     const user = userEvent.setup();
     render(<PluginSettingsPanel {...props()} />);

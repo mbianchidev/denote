@@ -1,0 +1,10 @@
+import type { PluginDiagramRenderResult, PluginDiagramRenderer } from "./contracts";
+export declare const MAX_PLUGIN_DIAGRAM_SOURCE_BYTES: number;
+export declare const MAX_PLUGIN_DIAGRAM_SOURCE_LINES = 1000;
+export declare const MAX_PLUGIN_DIAGRAM_LINE_BYTES: number;
+export declare const MAX_PLUGIN_DIAGRAM_SVG_BYTES: number;
+export declare const MAX_PLUGIN_DIAGRAM_ERROR_MESSAGE = 1024;
+export declare const MAX_PLUGIN_DIAGRAM_ACCESSIBLE_NAME = 80;
+export declare const MAX_PLUGIN_DIAGRAM_LANGUAGES = 8;
+export declare function isPluginDiagramRendererRegistration(value: unknown): value is PluginDiagramRenderer;
+export declare function isPluginDiagramRenderResult(value: unknown): value is PluginDiagramRenderResult;

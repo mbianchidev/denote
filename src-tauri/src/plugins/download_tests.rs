@@ -3,6 +3,7 @@ use tempfile::TempDir;
 
 use super::{
     catalog::{catalog_fingerprint, validate_catalog},
+    package::{sha256_file, verify_artifact},
     tests::{manager, package_bytes},
     types::{CATALOG_JSON, PluginCatalogEntry},
 };
@@ -10,20 +11,33 @@ use super::{
 #[test]
 #[ignore = "requires published catalog URLs and network access"]
 fn published_catalog_downloads_complete_native_lifecycle() {
-    check_download_lifecycle(false);
+    check_download_lifecycle(PackageSource::Published);
 }
 
 #[test]
 #[ignore = "requires published source pins and network access"]
 fn source_pinned_downloads_complete_native_lifecycle() {
-    check_download_lifecycle(true);
+    check_download_lifecycle(PackageSource::Ledger);
 }
 
-fn check_download_lifecycle(source: bool) {
+#[test]
+#[ignore = "requires npm run package:plugins staging"]
+fn staged_catalog_packages_complete_native_lifecycle() {
+    check_download_lifecycle(PackageSource::Staged);
+}
+
+#[derive(Clone, Copy)]
+enum PackageSource {
+    Published,
+    Ledger,
+    Staged,
+}
+
+fn check_download_lifecycle(source: PackageSource) {
     let mut entries: Vec<PluginCatalogEntry> =
         serde_json::from_str(CATALOG_JSON).expect("embedded catalog");
     for entry in &mut entries {
-        if source {
+        if matches!(source, PackageSource::Ledger) {
             entry.artifact.url = ledger_origin(entry);
         }
 
@@ -69,6 +83,29 @@ fn check_download_lifecycle(source: bool) {
         let cache = TempDir::new().expect("isolated application cache");
         let manager = manager(entry.clone(), &data, &cache);
         let id = &entry.manifest.id;
+        if matches!(source, PackageSource::Staged) {
+            let archive = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("repository root")
+                .join(".plugin-artifacts")
+                .join(format!("{id}-{}.tgz", entry.manifest.version));
+            let bytes = std::fs::read(&archive)
+                .expect("Stage the candidate archives with npm run package:plugins first");
+            verify_artifact(&entry, &bytes).expect("catalog-pinned candidate bytes");
+            let loaded = manager
+                .load_development_archive(&archive)
+                .expect("isolated candidate archive");
+            assert_eq!(loaded, *id);
+            assert_eq!(
+                serde_json::to_value(
+                    &manager.list().expect("candidate catalog")[0]
+                        .catalog
+                        .manifest
+                )
+                .expect("candidate manifest"),
+                serde_json::to_value(&entry.manifest).expect("catalog manifest")
+            );
+        }
         for _ in 0..2 {
             let installed = manager
                 .prepare(id, entry.manifest.permissions.clone())
@@ -114,6 +151,12 @@ fn check_download_lifecycle(source: bool) {
                 catalog_fingerprint(&previous).expect("previous fingerprint"),
             );
             state.entrypoint_hashes.insert(id.clone(), entrypoint_hash);
+            if let Some(renderer) = &previous.manifest.diagram_renderer {
+                let digest =
+                    sha256_file(&manager.install_dir(&previous).join(&renderer.entrypoint))
+                        .expect("synthetic previous renderer");
+                state.diagram_renderer_hashes.insert(id.clone(), digest);
+            }
         }
         manager.reconcile_packages().expect("discover update");
         assert_eq!(

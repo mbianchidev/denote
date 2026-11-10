@@ -124,6 +124,7 @@ impl PluginManager {
         plugin_id: &str,
         approved_permissions: Vec<PluginPermission>,
     ) -> AppResult<InstalledPlugin> {
+        self.ensure_runtime_allowed()?;
         let _preparation = self.preparation_lock()?;
         let mut operation = self.begin_operation(plugin_id)?;
         let catalog = self.catalog_entry(plugin_id)?;
@@ -206,6 +207,7 @@ impl PluginManager {
     }
 
     pub(crate) fn commit_enable(&self, transaction_id: &str) -> AppResult<()> {
+        self.ensure_runtime_allowed()?;
         let mut transactions = self.pending_transactions()?;
         let transaction = transactions.get(transaction_id).cloned().ok_or_else(|| {
             AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())

@@ -74,6 +74,66 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+### Release-hardening checks
+
+Install the reviewed [Gitleaks 8.30.1 release](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1)
+for local secret scanning and verify its published archive checksum before
+execution. CI downloads the exact Linux archive by tag and verifies its pinned
+SHA-256 before running it with a read-only token and no retained checkout
+credentials.
+
+```bash
+npm run check:secrets
+npm run check:plugin-api
+npm run build
+npm exec --no -- playwright test benchmarks/accessibility.perf.ts
+npm run package:plugins
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib \
+  staged_catalog_packages_complete_native_lifecycle -- --ignored
+```
+
+The history scan redacts matched values completely. `.gitleaksignore` contains
+only individually reviewed historical fingerprints for synthetic PDF bytes,
+public signing-key hashes/identifiers, and ARIA shortcut strings. It does not
+exclude whole source or test directories. Investigate every new finding; never
+add a credential to the baseline or treat missing scanner execution as success.
+
+The API check emits declarations with the locked compiler into a temporary
+directory and compares the complete API 1 surface with its versioned baseline.
+See [API 1 freeze and deprecation policy](plugins.md#api-1-freeze-and-deprecation-policy)
+before intentionally updating that baseline.
+
+The browser accessibility gate checks core editing, Editor/Security settings,
+all catalog cards, permission review, guides and settings, keyboard recovery,
+and native-startup safe-mode behavior in dark and light/compact layouts. It
+retains axe's complete results, including checks that need human review.
+Passing automation is not screen-reader or native-webview certification.
+Before qualifying a release candidate, separately record VoiceOver on macOS,
+NVDA on Windows, Orca on Linux, 200% zoom/text scaling, forced colors, focus
+visibility/obscuration, and the populated feature surfaces not covered by the
+automated journeys.
+
+The staged native lifecycle gate verifies every candidate archive against its
+catalog size and digest, then uses the isolated debug-only local adapter to
+exercise repeated enable/disable, update, rollback and retry without publishing
+assets or changing the production downloader. CI runs it on all three platforms.
+The separate `published_catalog_downloads_complete_native_lifecycle` and
+`source_pinned_downloads_complete_native_lifecycle` tests require published
+network origins. Run them explicitly with `--ignored` only against a published
+catalog; an unpublished URL is not a successful download test.
+
+For manual installation and update qualification, use disposable test profiles
+and synthetic vaults on each supported OS. Check real installer upgrade/removal,
+failed and interrupted signed updates, restart recovery, encrypted lock/unlock,
+and user-data preservation. Unit tests and a renderer smoke cannot stand in for
+these checks.
+
+An unpublished review build is not permission to tag, publish, push `main`, or
+pre-bump the application. Follow **Preview an unpublished plugin on macOS**
+below for the isolated Development bundle and separate local archives. A
+candidate is not release-qualified until the roadmap prerequisites and every
+manual gate have evidence; only release-blocking fixes may enter its freeze.
+
 App-lock checks use synthetic data and never request a real biometric prompt:
 
 ```bash
@@ -1748,7 +1808,7 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-11-10**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-revalidating the code-tooling integrations. Fresh official sparse-registry
+starting the release-hardening review. Fresh official sparse-registry
 records, upstream release notes and migration/backport trackers, and the RustSec
 snapshot linked below still show the same compatibility constraints.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
@@ -1757,7 +1817,7 @@ GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
 single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
 Official registry records, release notes, the
 linked upstream backport and D-Bus migration requests, and the
-[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/d9cb059f3217db87aeccd190b81eaffe8cc29cb9/crates)
+[RustSec snapshot](https://github.com/RustSec/advisory-db/tree/58a64e69d7a08a2b83a80efa6e4b018a9acb51fc/crates)
 confirm the constraints below. **A compatible notification-backend candidate
 is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the

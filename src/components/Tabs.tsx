@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useId,
   useRef,
   useState,
   type KeyboardEvent,
@@ -73,6 +74,7 @@ export function Tabs({
   onDragEnd,
   onDragCancel,
 }: TabsProps) {
+  const tabIdPrefix = useId();
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{
@@ -89,6 +91,7 @@ export function Tabs({
     const group = tab.groupId ? groupById.get(tab.groupId) : null;
     return !group || !group.collapsed || tab.path === activePath;
   });
+  const tabId = (path: string) => `${tabIdPrefix}-${encodeURIComponent(path)}`;
 
   useEffect(() => {
     if (!contextMenu) {
@@ -144,11 +147,7 @@ export function Tabs({
 
   const focusTabAfterLayoutChange = (path: string) => {
     window.setTimeout(() => {
-      document
-        .querySelector<HTMLButtonElement>(
-          `[data-tab-path="${CSS.escape(path)}"]`,
-        )
-        ?.focus();
+      document.getElementById(tabId(path))?.focus();
     }, 0);
   };
 
@@ -231,9 +230,7 @@ export function Tabs({
     const path = visibleTabs[nextIndex]?.path;
     if (path) {
       onActivate(path);
-      document
-        .querySelector<HTMLButtonElement>(`[data-tab-path="${CSS.escape(path)}"]`)
-        ?.focus();
+      document.getElementById(tabId(path))?.focus();
     }
   };
 
@@ -257,6 +254,7 @@ export function Tabs({
         key={tab.path}
       >
         <button
+          id={tabId(tab.path)}
           type="button"
           role="tab"
           aria-selected={tab.path === activePath}
@@ -401,10 +399,17 @@ export function Tabs({
     <>
       <div
         className="tabs"
-        role="tablist"
-        aria-label={label}
         data-reordering={draggedPath !== null}
       >
+        {visibleTabs.length > 0 ? (
+          // Auxiliary controls stay outside the tablist's accessibility ownership.
+          <div
+            className="sr-only"
+            role="tablist"
+            aria-label={label}
+            aria-owns={visibleTabs.map((tab) => tabId(tab.path)).join(" ")}
+          />
+        ) : null}
         {renderedTabs}
         <button
           type="button"

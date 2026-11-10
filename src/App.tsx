@@ -10257,6 +10257,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
       pluginBundles={pluginController.bundles}
       pluginDevelopmentSupported={pluginController.developmentSupported}
       pluginDevelopmentLoading={pluginController.developmentLoading}
+      pluginSafeMode={pluginController.safeMode}
       activeProject={activeProject}
       pluginsLoading={pluginController.loading}
       busyPluginIds={pluginController.busyPluginIds}
@@ -11853,6 +11854,11 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
               systemPathForDisplay(workspace.vaultPath)}
           </span>
           <span className="status-bar__spacer" />
+          {pluginController.safeMode ? (
+            <span title="Plugins are paused until Denote restarts without --safe-mode.">
+              Safe mode
+            </span>
+          ) : null}
           {primaryTimeTracker && (primaryTimer || primaryTimeTrackingState?.model?.activeElsewhere) ? (
             <button className="secondary-button status-bar__timer" type="button"
               onClick={() => showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id, "notes")}>

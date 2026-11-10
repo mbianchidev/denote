@@ -57,6 +57,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 
 struct PluginManagerInner {
+    safe_mode: bool,
     app_data_dir: PathBuf,
     app_cache_dir: PathBuf,
     resource_dir: PathBuf,
@@ -127,6 +128,20 @@ impl Drop for PluginOperation {
 }
 
 impl PluginManager {
+    pub(crate) fn safe_mode(&self) -> bool {
+        self.inner.safe_mode
+    }
+
+    pub(super) fn ensure_runtime_allowed(&self) -> AppResult<()> {
+        if self.safe_mode() {
+            return Err(AppError::Plugin(
+                "Plugins are paused in safe mode. Quit Denote and restart without --safe-mode."
+                    .into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn clear_clipboard_files(&self) -> AppResult<()> {
         crate::vault::clear_clipboard_files(&self.inner.app_cache_dir)
     }
@@ -138,6 +153,7 @@ impl PluginManager {
             app_cache_dir,
             PathBuf::new(),
             "dev.mbianchi.denote.test".to_string(),
+            false,
         )
     }
 
@@ -146,6 +162,7 @@ impl PluginManager {
         app_cache_dir: PathBuf,
         resource_dir: PathBuf,
         application_identifier: String,
+        safe_mode: bool,
     ) -> Self {
         let keychain_service = Self::keychain_service_for_identifier(&application_identifier);
         let (manager, initialized) = match Self::try_new(
@@ -153,6 +170,7 @@ impl PluginManager {
             app_cache_dir.clone(),
             resource_dir.clone(),
             keychain_service.clone(),
+            safe_mode,
         ) {
             Ok(manager) => (manager, true),
             Err(error) => {
@@ -160,6 +178,7 @@ impl PluginManager {
                 (
                         Self {
                             inner: Arc::new(PluginManagerInner {
+                                safe_mode,
                                 app_data_dir,
                                 app_cache_dir,
                                 resource_dir,
@@ -209,6 +228,7 @@ impl PluginManager {
         app_cache_dir: PathBuf,
         resource_dir: PathBuf,
         keychain_service: String,
+        safe_mode: bool,
     ) -> AppResult<Self> {
         let catalog: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON)
             .map_err(|error| AppError::Plugin(format!("Invalid embedded catalog: {error}")))?;
@@ -290,6 +310,7 @@ impl PluginManager {
         }
         let manager = Self {
             inner: Arc::new(PluginManagerInner {
+                safe_mode,
                 app_data_dir,
                 app_cache_dir,
                 resource_dir,
