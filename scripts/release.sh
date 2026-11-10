@@ -44,6 +44,7 @@ VERSION="$(
 )" || fail "invalid release version"
 readonly VERSION
 readonly TAG="v${VERSION}"
+readonly RELEASE_MESSAGE="Release ${TAG}"
 
 [[ "$(git branch --show-current)" == "main" ]] ||
   fail "run this script from the main branch"
@@ -117,12 +118,12 @@ git diff --quiet ||
 git diff --cached --quiet &&
   fail "release ${TAG} produced no staged changes"
 
-git commit --no-gpg-sign -m "Release ${TAG}"
+git commit --no-gpg-sign -m "$RELEASE_MESSAGE"
 
 [[ -z "$(git status --porcelain)" ]] ||
   fail "working tree is not clean after the release commit"
 
 git push origin main
 
-git tag "$TAG"
+git tag --annotate --message "$RELEASE_MESSAGE" "$TAG"
 git push origin "$TAG"
