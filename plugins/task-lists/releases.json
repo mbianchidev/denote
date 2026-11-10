@@ -53,5 +53,16 @@
       "sha256": "cee4f007b311b4beb90ee398e3a4b821abca90859f7c9054b628c8528657e238",
       "sizeBytes": 70590
     }
+  },
+  {
+    "version": "0.1.5",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/task-lists",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.task-lists-0.1.5.tgz",
+      "sha256": "f32374f156f502971c564603031dd8b125ed4ef5a2aa60091bdf3b40144e76da",
+      "sizeBytes": 70761
+    }
   }
 ]

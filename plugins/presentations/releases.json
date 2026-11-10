@@ -20,5 +20,16 @@
       "sha256": "1d14fe9de0cb34a53f13a741328b6279fa32f35ad77f9087c3cec4ab68689caf",
       "sizeBytes": 66557
     }
+  },
+  {
+    "version": "0.1.2",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/presentations",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.presentations-0.1.2.tgz",
+      "sha256": "c228c0d69453c9d24a8c8a0674addcf9a0772cad1290b9f9b28f5f492842b4d8",
+      "sizeBytes": 66663
+    }
   }
 ]

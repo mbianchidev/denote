@@ -42,5 +42,16 @@
       "sha256": "d68194be1b2648c7cd766d89e3934d00fa45502dc2411765a3f73fbdc94782c1",
       "sizeBytes": 66438
     }
+  },
+  {
+    "version": "0.1.4",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/json-yaml-viewer",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.json-yaml-viewer-0.1.4.tgz",
+      "sha256": "5daab944e1d6d7c85e22a81bafcad3abb742303de9a2a2fc713c81ea96456422",
+      "sizeBytes": 66788
+    }
   }
 ]

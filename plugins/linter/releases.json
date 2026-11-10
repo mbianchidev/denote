@@ -9,5 +9,16 @@
       "sha256": "faf6b797d3a25f2b1935cb863facf15605e172dc1798a0fb7203aa52bf1011ec",
       "sizeBytes": 19147
     }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/linter",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.linter-0.1.1.tgz",
+      "sha256": "1c0dda7ed3d6b3e2631939712c16639fab5e2c7b6bdd4428a66ab294c69cda49",
+      "sizeBytes": 19156
+    }
   }
 ]

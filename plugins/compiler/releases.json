@@ -9,5 +9,16 @@
       "sha256": "439a9cfab97831fd3f124390c9e8d87c57384d118eca3c1e5e7865b8be33139c",
       "sizeBytes": 19135
     }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "75937a627d157f7698703485a5cb686cab9bb576",
+    "kind": "source",
+    "sourcePath": "plugins/compiler",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0-rc.1/denote.compiler-0.1.1.tgz",
+      "sha256": "259420e83582ba0b8d4992f0014243cfc34abbb0ba86cd5d88c44138a130401d",
+      "sizeBytes": 19142
+    }
   }
 ]
