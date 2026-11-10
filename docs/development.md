@@ -1748,12 +1748,12 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-11-10**.
 Rechecked all seven vendor directories and `[patch.crates-io]` entries before
-making release messages non-interactive. Fresh crates.io API and sparse-registry
+revalidating the code-tooling integrations. Fresh official sparse-registry
 records, upstream release notes and migration/backport trackers, and the RustSec
 snapshot linked below still show the same compatibility constraints.
 Fresh official sparse-registry records confirm GLib 0.18.5 / 0.22.10,
 GLib macros 0.18.5 / 0.22.9, GTK3 macros 0.18.2 / 0.19.0, URLPattern
-0.3.0 / 0.6.0, notification 2.4.0 / 2.8.0, opener 2.5.5 / 2.7.2, and
+0.3.0 / 0.6.0, notification 2.4.0 / 2.8.1, opener 2.5.5 / 2.7.3, and
 single-instance 2.4.5 / 2.5.5 as the reviewed local/current stable pairs.
 Official registry records, release notes, the
 linked upstream backport and D-Bus migration requests, and the
@@ -1763,8 +1763,8 @@ is now published:** notify-rust 4.19.0 replaces its default zbus 5 backend with
 zbus 6, satisfies notification 2.4.0's `^4.11` requirement, and retains the
 same Rust 1.89 minimum as 4.18.2. Removing the notification backport still
 requires the source-aware audit, Linux delivery regressions, and all-platform
-checks; this release-script change retains the notification backport. The other six
-backports have no compatible published replacement: newer GTK/GLib types do
+checks. The notification backport remains in place. The other six backports
+have no compatible published replacement: newer GTK/GLib types do
 not match GTK 0.18, Tauri utils 2.9.3 still requires URLPattern `^0.3`, and
 newer opener/single-instance plugins require Tauri `^2.12` while retaining
 zbus 5. The reviewed
@@ -1839,18 +1839,20 @@ remain applicable to the original dependency graphs. Neither withdrawal nor
 a newer incompatible release removes the need for these local replacements.
 
 Published
-[notification 2.8.0](https://crates.io/crates/tauri-plugin-notification/2.8.0),
-[opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
+[notification 2.8.1](https://crates.io/crates/tauri-plugin-notification/2.8.1),
+[opener 2.7.3](https://crates.io/crates/tauri-plugin-opener/2.7.3), and
 [single-instance 2.5.5](https://crates.io/crates/tauri-plugin-single-instance/2.5.5)
 require Tauri 2.12. All three still require zbus 5 directly; notification
 also uses notify-rust `^4.18`, which can now resolve the maintained 4.19.0 backend.
 The notification replacement candidate above applies to the compatible 2.4.0
-package, not an upgrade to 2.8.0. The
-[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.0),
-[opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
+package, not an upgrade to 2.8.1. The
+[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.1),
+[opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.3),
 and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.5)
-do not provide compatible releases removing the D-Bus backports. The
-[upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+do not provide compatible releases removing the D-Bus backports. The notification
+and opener patches published on 2026-11-10 fix Android permission completion and
+HTML link targets respectively, not the pinned runtime's dependency constraints.
+The [upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
 is open. [notify-rust 4.18.2](https://crates.io/crates/notify-rust/4.18.2),
 retained in the lockfile, still defaults to zbus 5, whereas the newly published
 [4.19.0 registry record](https://index.crates.io/no/ti/notify-rust) requires
