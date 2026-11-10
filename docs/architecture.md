@@ -150,6 +150,17 @@ The browser is the review/edit surface; Denote never submits an issue.
 
 ## Data boundaries
 
+Remote image consent is a separate, off-by-default host preference, not an
+external-link domain grant or a plugin permission. One React context governs
+ordinary Markdown images, the safe HTML subset, read views and presentations.
+Preview resolution substitutes an explicitly labelled local placeholder before
+any remote URL reaches an image element while consent is absent; local vault
+images continue through native bounded reads. Revocation updates existing
+renderers without rewriting Markdown. Only the boolean is persisted, and a
+failed read/save keeps this session blocked with a visible error. Browser
+referrers are disabled for approved image requests. This preference does not
+sandbox explicitly approved native tools or disable their own networking.
+
 ### Optional app lock
 
 `src-tauri/src/app_lock.rs` owns device-local app-lock configuration and native

@@ -1360,6 +1360,7 @@ button:disabled {
 }
 
 .denote-editor-content .safe-rich-html__image-loading,
+.denote-editor-content .safe-rich-html__image-blocked,
 .denote-editor-content .safe-rich-html__image-error {
   display: inline-block;
   margin: 0.25em;

@@ -126,6 +126,32 @@ and credentials. Timer-stop metadata is still recorded when disabling a timer
 plugin. Restart without the flag to restore normally enabled plugins. The flag
 applies only to a new process, not an already-running Denote instance.
 
+## Privacy and external connections
+
+Denote has no analytics or telemetry integration, and plugins receive no
+telemetry API. The following network paths have separate purposes and controls:
+
+- **Load remote images** in **Settings → Editor** is off by default. Local images
+  still work. Enabling it allows HTTP/HTTPS images in notes, read views and
+  presentations; image hosts receive the requested URL and ordinary connection
+  metadata. Denote sends no browser referrer. Turning it off blocks active
+  remote image previews and survives restart without editing the note.
+- Allowed external domains govern opening web links in your browser. Those
+  approvals do not enable remote images.
+- Application updates contact the configured GitHub channel after startup and
+  verify downloaded updates before an explicit restart. Plugin downloads need
+  package approval; optional permission-preserving automatic plugin updates
+  require their own opt-in.
+- Git remotes, model downloads, and other explicit transfers follow their
+  documented actions. Approved native tools have ordinary OS permissions and
+  their own network/privacy settings; the image switch is not a native sandbox.
+- Bug reporting opens a redacted, editable draft in your browser. Denote never
+  submits the issue automatically.
+
+Image consent stores only a boolean in local application preferences, not image
+URLs, credentials, or Markdown content. Corrupt or unavailable preference
+storage leaves images blocked and reports the failure.
+
 ## Advanced authoring
 
 Text highlighting and coloring, Note comments, and Markdown presentation slides

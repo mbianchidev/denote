@@ -78,9 +78,9 @@ cargo check --manifest-path src-tauri/Cargo.toml
 
 Install the reviewed [Gitleaks 8.30.1 release](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1)
 for local secret scanning and verify its published archive checksum before
-execution. CI downloads the exact Linux archive by tag and verifies its pinned
-SHA-256 before running it with a read-only token and no retained checkout
-credentials.
+execution. CI uses a read-only token to retrieve the exact Linux archive by tag,
+removes that token from the environment, and verifies the pinned SHA-256 before
+execution. Checkout credentials are not retained.
 
 ```bash
 npm run check:secrets

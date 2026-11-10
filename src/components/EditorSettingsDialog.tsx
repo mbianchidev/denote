@@ -30,6 +30,8 @@ interface EditorSettingsDialogProps {
   restoreTabsAvailable?: boolean;
   externalDomains: string[];
   allowAllExternalDomains: boolean;
+  remoteImagesAllowed: boolean;
+  onRemoteImagesAllowedChange: (enabled: boolean) => void;
   plugins: PluginView[];
   pluginBundles: PluginBundleMetadata[];
   pluginDevelopmentSupported?: boolean;
@@ -83,6 +85,8 @@ export function EditorSettingsDialog({
   restoreTabsAvailable = true,
   externalDomains,
   allowAllExternalDomains,
+  remoteImagesAllowed,
+  onRemoteImagesAllowedChange,
   plugins,
   pluginBundles,
   pluginDevelopmentSupported = false,
@@ -163,8 +167,8 @@ export function EditorSettingsDialog({
         event.preventDefault();
         onClose();
       }}
-      onClose={() => {
-        if (open) {
+      onClose={(event) => {
+        if (open && !event.currentTarget.open) {
           onClose();
         }
       }}
@@ -340,6 +344,17 @@ export function EditorSettingsDialog({
             onChange={onRestoreTabsChange}
           />
         </div>
+          <section className="external-domain-settings" aria-labelledby="remote-image-privacy-title">
+            <div>
+              <h3 id="remote-image-privacy-title">Remote images</h3>
+            </div>
+            <SettingCheckbox
+              checked={remoteImagesAllowed}
+              label="Load remote images"
+              description="Allow HTTP and HTTPS images in notes and presentations. Image hosts receive requests; link-domain permissions are separate."
+              onChange={onRemoteImagesAllowedChange}
+            />
+          </section>
           <section
           className="external-domain-settings"
           aria-labelledby="external-domain-settings-title"

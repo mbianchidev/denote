@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { RemoteImagesAllowedContext, useRemoteImagePreference } from "./lib/remoteImages";
 import { listen } from "@tauri-apps/api/event";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { forceParsing, syntaxTree } from "@codemirror/language";
@@ -1673,6 +1674,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
     },
     [showError],
   );
+  const remoteImages = useRemoteImagePreference(showError);
   const toggleTheme = useCallback(() => {
     updateThemePreference(theme === "dark" ? "light" : "dark");
   }, [theme, updateThemePreference]);
@@ -10253,6 +10255,8 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
       restoreTabsAvailable={workspace !== null}
       externalDomains={externalDomainPolicy.domains}
       allowAllExternalDomains={externalDomainPolicy.allowAll}
+      remoteImagesAllowed={remoteImages.allowed}
+      onRemoteImagesAllowedChange={remoteImages.update}
       plugins={pluginController.plugins}
       pluginBundles={pluginController.bundles}
       pluginDevelopmentSupported={pluginController.developmentSupported}
@@ -10873,6 +10877,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
   ) : undefined;
 
   return (
+    <RemoteImagesAllowedContext.Provider value={remoteImages.allowed}>
     <div
       className="app-shell"
       style={
@@ -11996,6 +12001,7 @@ function Workspace({ appLock }: { appLock: AppLockActions }) {
         onCancel={() => finishActionDialog(null)}
       />
     </div>
+    </RemoteImagesAllowedContext.Provider>
   );
 }
 

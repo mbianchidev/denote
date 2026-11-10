@@ -116,3 +116,57 @@ test("startup safe mode keeps approved code stopped while core editing and recov
   await audit(page, info, "Safe-mode recovery", ".editor-settings-dialog");
   expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.unexpectedCommands)).toEqual([]);
 });
+
+test("remote image requests require explicit opt-in and revocation survives restart without editing source", async ({ page }) => {
+  const requests: string[] = [];
+  const referrers: string[] = [];
+  const source = [
+    "# Synthetic image privacy", "",
+    "![Synthetic Markdown image](https://images.example.test/markdown.svg)", "",
+    '<p><img src="https://images.example.test/html.svg" alt="Synthetic HTML image"></p>', "",
+    "![Synthetic local image](assets/local.svg)", "",
+  ].join("\n");
+  await page.route("https://images.example.test/**", async (route) => {
+    requests.push(route.request().url());
+    const referrer = route.request().headers().referer;
+    if (referrer) referrers.push(referrer);
+    await route.fulfill({ contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="12" fill="green"/></svg>' });
+  });
+  await page.addInitScript({ content:
+    `window.__DENOTE_SMALL_TREE__ = true; window.__DENOTE_REMOTE_IMAGE_NOTE__ = ${JSON.stringify(source)};\n${fixture}` });
+  const openNote = async () => {
+    await expect(page.getByRole("button", { name: "Small.md", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Small.md", exact: true }).click();
+    await expect(page.getByRole("img", { name: /^Synthetic Markdown image/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /^Synthetic HTML image/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: "Synthetic local image", exact: true })).toBeVisible();
+  };
+  const setPermission = async (enabled: boolean) => {
+    await page.keyboard.press(process.platform === "darwin" ? "Meta+," : "Control+,");
+    const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+    await expect(settings).toBeVisible();
+    await settings.getByRole("checkbox", { name: /^Load remote images\b/ }).setChecked(enabled);
+    await settings.getByRole("button", { name: "Done", exact: true }).click();
+  };
+
+  await page.goto("/");
+  await openNote();
+  await expect(page.locator('img[src^="https://"], img[src^="http://"]')).toHaveCount(0);
+  expect(requests).toEqual([]);
+  await setPermission(true);
+  await expect.poll(() => [...new Set(requests)].sort()).toEqual([
+    "https://images.example.test/html.svg", "https://images.example.test/markdown.svg",
+  ]);
+  await setPermission(false);
+  await expect(page.locator('img[src^="https://"], img[src^="http://"]')).toHaveCount(0);
+  const approvedRequests = requests.length;
+  await page.reload();
+  await openNote();
+  await expect(page.locator('img[src^="https://"], img[src^="http://"]')).toHaveCount(0);
+  expect(requests).toHaveLength(approvedRequests);
+  expect(referrers).toEqual([]);
+  expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.documents["Small.md"])).toBe(source);
+  expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.saves)).toEqual([]);
+  expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.unexpectedCommands)).toEqual([]);
+});

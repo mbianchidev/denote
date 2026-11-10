@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { api } from "../lib/api";
 import { applyTheme } from "../lib/theme";
+import { RemoteImagesAllowedContext } from "../lib/remoteImages";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 const nativeMenu = vi.hoisted(() => ({
@@ -2651,13 +2652,14 @@ describe("MarkdownEditor links", () => {
     }
   });
 
-  it("renders safe README HTML with intercepted links, native images, and adjacent directives", async () => {
+  it("renders safe README HTML with intercepted links, approved images, and adjacent directives", async () => {
     const readImage = vi
       .spyOn(api, "readImageDataUrl")
       .mockResolvedValue("data:image/svg+xml;base64,PHN2Zy8+");
     const onLinkOpen = vi.fn();
     try {
       const { container } = render(
+        <RemoteImagesAllowedContext.Provider value>
         <MarkdownEditor
           notePath="notes/project.md"
           markdown={
@@ -2672,7 +2674,8 @@ describe("MarkdownEditor links", () => {
           onLinkOpen={onLinkOpen}
           onViewModeChange={vi.fn()}
           onImageUpload={vi.fn()}
-        />,
+        />
+        </RemoteImagesAllowedContext.Provider>,
       );
 
       const link = await screen.findByRole("link", { name: "Read the guide" });
@@ -2713,8 +2716,9 @@ describe("MarkdownEditor links", () => {
     }
   });
 
-  it("renders a safe standalone HTML screenshot", async () => {
-    render(
+  it("keeps a safe standalone HTML screenshot blocked until separately approved", async () => {
+    const onChange = vi.fn();
+    const editor = (
       <MarkdownEditor
         notePath="docs/overview.md"
         markdown={
@@ -2724,17 +2728,31 @@ describe("MarkdownEditor links", () => {
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         preferredViewMode="rich-text"
         readOnly={false}
-        onChange={vi.fn()}
+        onChange={onChange}
         onError={vi.fn()}
         onLinkOpen={vi.fn()}
         onViewModeChange={vi.fn()}
         onImageUpload={vi.fn()}
-      />,
+      />
+    );
+    const view = render(
+      <RemoteImagesAllowedContext.Provider value={false}>{editor}</RemoteImagesAllowedContext.Provider>,
+    );
+    expect(await screen.findByRole("img", { name: "Example overview (remote image blocked)" }))
+      .not.toHaveAttribute("src");
+    view.rerender(
+      <RemoteImagesAllowedContext.Provider value>{editor}</RemoteImagesAllowedContext.Provider>,
     );
 
     expect(
       await screen.findByRole("img", { name: "Example overview" }),
     ).toHaveAttribute("src", "https://images.example.test/overview.png");
+    view.rerender(
+      <RemoteImagesAllowedContext.Provider value={false}>{editor}</RemoteImagesAllowedContext.Provider>,
+    );
+    expect(await screen.findByRole("img", { name: "Example overview (remote image blocked)" }))
+      .not.toHaveAttribute("src");
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("preserves safe HTML bytes after an unrelated rich edit", async () => {

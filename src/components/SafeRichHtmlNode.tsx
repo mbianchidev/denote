@@ -27,6 +27,7 @@ import {
   type ReactNode,
 } from "react";
 import { api, errorMessage } from "../lib/api";
+import { RemoteImagesAllowedContext } from "../lib/remoteImages";
 import {
   parseSafeRichHtml,
   type SafeRichHtmlInline,
@@ -220,14 +221,15 @@ function SafeRichHtmlImage({
   image: Extract<SafeRichHtmlInline, { type: "image" }>;
 }) {
   const context = useContext(SafeRichHtmlRenderContext);
+  const remoteImagesAllowed = useContext(RemoteImagesAllowedContext);
   const [localSource, setLocalSource] = useState<string | null>(
-    image.remote ? image.src : null,
+    image.remote && remoteImagesAllowed ? image.src : null,
   );
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (image.remote) {
-      setLocalSource(image.src);
+      setLocalSource(remoteImagesAllowed ? image.src : null);
       setFailed(false);
       return;
     }
@@ -254,8 +256,16 @@ function SafeRichHtmlImage({
     return () => {
       active = false;
     };
-  }, [context, image.remote, image.src]);
+  }, [context, image.remote, image.src, remoteImagesAllowed]);
 
+  if (image.remote && !remoteImagesAllowed) {
+    return (
+      <span className="safe-rich-html__image-blocked" role="img"
+        aria-label={`${image.alt || "Remote image"} (remote image blocked)`}>
+        Remote image blocked. Enable Load remote images in Settings → Editor.
+      </span>
+    );
+  }
   if (failed) {
     return (
       <span className="safe-rich-html__image-error" role="img" aria-label={image.alt}>

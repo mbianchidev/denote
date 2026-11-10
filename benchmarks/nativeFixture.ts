@@ -11,6 +11,7 @@ interface BenchmarkState {
   vaultReads: number;
   noteReads: number;
   deviceAttempts: number;
+  saves: string[];
 }
 
 declare global {
@@ -21,6 +22,7 @@ declare global {
     __DENOTE_SAFE_MODE__?: boolean;
     __DENOTE_PLUGIN_CATALOG__?: PluginView[];
     __DENOTE_SMALL_TREE__?: boolean;
+    __DENOTE_REMOTE_IMAGE_NOTE__?: string;
   }
 }
 
@@ -57,7 +59,7 @@ function markdown(sections: number): string {
 }
 
 const documents: Record<string, string> = {
-  "Small.md": "# Small synthetic page\n\nReady.",
+  "Small.md": window.__DENOTE_REMOTE_IMAGE_NOTE__ ?? "# Small synthetic page\n\nReady.",
   "Typing.md": markdown(180),
   "Reading.md": markdown(500),
   "Source.txt": "Synthetic source line, no personal data.\n".repeat(2500),
@@ -84,6 +86,7 @@ const state: BenchmarkState = {
   vaultReads: 0,
   noteReads: 0,
   deviceAttempts: 0,
+  saves: [],
 };
 window.__DENOTE_BENCHMARK__ = state;
 const node = (path: string): FileNode => ({
@@ -245,8 +248,13 @@ mockIPC((command, payload) => {
     }
     case "record_edit":
       return stats;
+    case "read_image_data_url":
+      if (argument(payload, "imageSource") !== "assets/local.svg" ||
+          argument(payload, "notePath") !== "Small.md") throw new Error("Unknown synthetic local image");
+      return `data:image/svg+xml;base64,${btoa('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="12" fill="green"/></svg>')}`;
     case "save_note": {
       const path = argument(payload, "path");
+      state.saves.push(path);
       state.documents[path] = argument(payload, "content");
       fileVersions.set(path, ++hash);
       return {

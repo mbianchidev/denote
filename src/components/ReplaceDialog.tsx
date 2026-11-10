@@ -156,8 +156,8 @@ export function ReplaceDialog({
         event.preventDefault();
         onClose();
       }}
-      onClose={() => {
-        if (open) {
+      onClose={(event) => {
+        if (open && !event.currentTarget.open) {
           onClose();
         }
       }}

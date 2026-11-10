@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
@@ -8,6 +8,8 @@ import { EditorSettingsDialog } from "./EditorSettingsDialog";
 const pluginProps = {
   themePreference: "dark" as const,
   onThemePreferenceChange: vi.fn(),
+  remoteImagesAllowed: false,
+  onRemoteImagesAllowedChange: vi.fn(),
   plugins: [],
   pluginBundles: [],
   activeProject: null,
@@ -27,6 +29,35 @@ const pluginProps = {
 };
 
 describe("EditorSettingsDialog", () => {
+  it("ignores a delayed native close event after Settings has already reopened", () => {
+    const onClose = vi.fn();
+    const view = (open: boolean) => (
+      <EditorSettingsDialog
+        {...pluginProps}
+        open={open}
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
+        onChange={vi.fn()}
+        onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
+        onClose={onClose}
+      />
+    );
+    const { rerender } = render(view(true));
+    const dialog = screen.getByRole("dialog", { name: "Settings" });
+    rerender(view(false));
+    rerender(view(true));
+
+    fireEvent(dialog, new Event("close"));
+
+    expect(dialog).toHaveAttribute("open");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("opens app lock in the Security section without exposing plugin controls", async () => {
     const user = userEvent.setup();
     render(<EditorSettingsDialog {...pluginProps} open disabled={false}

@@ -153,6 +153,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Fortran, Julia, Perl, Pascal, VB.NET, Cobol, Puppet, Common Lisp,
   Terraform/HCL, Helm templates, and common SQL dialects.
 - Images retain their visual preview and can switch to raw editing.
+- Remote HTTP/HTTPS images are blocked until **Load remote images** is explicitly
+  enabled in Settings. Local images remain available. Revocation applies to
+  active views and persists across restart without changing note source.
 - Rich Markdown editing is the default in every pane.
 - Opening, focusing, and switching Rich/Source views do not edit or autosave
   a note. Original trailing spaces, tabs, and blank lines stay in its source.
